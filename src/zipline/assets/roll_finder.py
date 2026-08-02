@@ -99,7 +99,7 @@ class RollFinder(ABC):
         sessions = tc.sessions_in_range(
             tc.minute_to_session(start), tc.minute_to_session(end)
         )
-        freq = sessions.freq
+        freq = tc.day
         if first == front:
             # This is a bit tricky to grasp. Once we have the active contract
             # on the given end date, we want to start walking backwards towards
