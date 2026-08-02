@@ -156,7 +156,7 @@ def convert_cols(cols, scale_factor, sid, invalid_data_behavior):
 
             # We want to exclude all rows that have an unsafe value in
             # this column.
-            exclude_mask &= scaled_col >= np.iinfo(np.uint32).max
+            exclude_mask |= scaled_col >= np.iinfo(np.uint32).max
 
     # Convert all cols to uint32.
     opens = scaled_opens.astype(np.uint32)
@@ -610,7 +610,7 @@ class BcolzMinuteBarWriter:
             days_to_zerofill = tds[tds.slice_indexer(end=date)]
         else:
             days_to_zerofill = tds[
-                tds.slice_indexer(start=last_date + tds.freq, end=date)
+                tds.slice_indexer(start=tds[tds.get_loc(last_date) + 1], end=date)
             ]
 
         self._zerofill(table, len(days_to_zerofill))
@@ -749,7 +749,13 @@ class BcolzMinuteBarWriter:
 
         last_date = self.last_date_in_output_for_sid(sid)
 
-        day_before_input = input_first_day - tds.freq
+        input_loc = tds.get_loc(input_first_day)
+        if input_loc > 0:
+            day_before_input = tds[input_loc - 1]
+        else:
+            # input_first_day is the first session; use a date before it
+            # so pad() returns early via the `date < tds[0]` check.
+            day_before_input = input_first_day - pd.Timedelta(days=1)
 
         self.pad(sid, day_before_input)
         table = self._ensure_ctable(sid)

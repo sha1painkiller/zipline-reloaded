@@ -273,7 +273,7 @@ class DataPortal:
         self._first_trading_minute = (
             self.trading_calendar.session_first_minute(self._first_trading_day)
             if self._first_trading_day is not None
-            else (None, None)
+            else None
         )
 
         # Store the locs of the first day and first minute
@@ -595,9 +595,9 @@ class DataPortal:
                     asset, self._mergers_dict, "MERGERS"
                 )
                 for adj_dt, adj in merger_adjustments:
-                    if dt < adj_dt <= perspective_dt:
+                    if dt < adj_dt.tz_localize(dt.tzinfo) <= perspective_dt:
                         adjustments_for_asset.append(adj)
-                    elif adj_dt > perspective_dt:
+                    elif adj_dt.tz_localize(dt.tzinfo) > perspective_dt:
                         break
 
                 dividend_adjustments = self._get_adjustment_list(
@@ -734,10 +734,12 @@ class DataPortal:
                         else:
                             # adjust if needed
                             return self.get_adjusted_value(
-                                asset, column, found_dt, dt, "minute", spot_value=value
+                                asset, column, found_dt, dt, "daily", spot_value=value
                             )
                     else:
                         found_dt -= self.trading_calendar.day
+                        if found_dt < self._first_trading_day:
+                            return np.nan
                 except NoDataOnDate:
                     return np.nan
 

@@ -3,6 +3,7 @@ Module for building a complete daily dataset from Quandl's WIKI dataset.
 """
 
 from io import BytesIO
+import os
 import tarfile
 from zipfile import ZipFile
 
@@ -310,6 +311,15 @@ def quantopian_quandl_bundle(
     with tarfile.open("r", fileobj=data) as tar:
         if show_progress:
             log.info("Writing data to %s.", output_dir)
+        for member in tar.getmembers():
+            member_path = os.path.join(output_dir, member.name)
+            if not os.path.realpath(member_path).startswith(
+                os.path.realpath(output_dir)
+            ):
+                raise ValueError(
+                    f"Tar member {member.name!r} would extract outside "
+                    f"target directory"
+                )
         tar.extractall(output_dir)
 
 
