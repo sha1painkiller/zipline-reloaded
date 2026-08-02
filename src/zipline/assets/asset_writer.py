@@ -652,7 +652,7 @@ class AssetDBWriter:
             )
 
         if futures is not None:
-            futures = _generate_output_dataframe(_futures_defaults, futures)
+            futures = _generate_output_dataframe(futures, _futures_defaults)
 
         if exchanges is not None:
             exchanges = _generate_output_dataframe(
@@ -876,7 +876,7 @@ class AssetDBWriter:
 
     def _all_tables_present(self, txn):
         """
-        Checks if any tables are present in the current assets database.
+        Checks if all tables are present in the current assets database.
 
         Parameters
         ----------
@@ -886,14 +886,12 @@ class AssetDBWriter:
         Returns
         -------
         has_tables : bool
-            True if any tables are present, otherwise False.
+            True if all tables are present, otherwise False.
         """
-        # conn = txn.connect()
-        for table_name in asset_db_table_names:
-            return sa.inspect(txn).has_table(table_name)
-            # if txn.dialect.has_table(conn, table_name):
-            # return True
-        # return False
+        return all(
+            sa.inspect(txn).has_table(table_name)
+            for table_name in asset_db_table_names
+        )
 
     def init_db(self, txn=None):
         """Connect to database and create tables.

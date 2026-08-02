@@ -161,7 +161,6 @@ def _weak_lru_cache(maxsize=100):
                 result = user_function(*args, **kwds)
                 with lock:
                     cache[key] = result  # record recent use of this key
-                    misses += 1
                     if cache_len() > maxsize:
                         # purge least recently used cache entry
                         cache_popitem(last=False)
@@ -176,9 +175,10 @@ def _weak_lru_cache(maxsize=100):
 
         def cache_clear():
             """Clear the cache and cache statistics"""
+            nonlocal hits, misses
             with lock:
                 cache.clear()
-                hits[0] = misses[0] = 0
+                hits = misses = 0
 
         wrapper.cache_info = cache_info
         wrapper.cache_clear = cache_clear
