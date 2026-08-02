@@ -277,7 +277,7 @@ class HDF5FXRateWriter:
 
     def _write_metadata(self):
         self._group.attrs["version"] = HDF5_FX_VERSION
-        self._group.attrs["last_updated_utc"] = str(pd.Timestamp.utcnow())
+        self._group.attrs["last_updated_utc"] = str(pd.Timestamp.now("UTC"))
 
     def _write_index_group(self, dts, currencies):
         """Write content of /index."""

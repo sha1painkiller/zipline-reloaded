@@ -40,7 +40,7 @@ def get_benchmark_returns_from_file(filelike):
         parse_dates=["date"],
     )
     if df.index.tz is not None:
-        df = df.tz_localize(None)
+        df.index = df.index.tz_localize(None)
 
     if "return" not in df.columns:
         raise ValueError(

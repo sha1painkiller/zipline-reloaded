@@ -452,6 +452,12 @@ def compute_asset_lifetimes(frames):
     # Offset of the last null from the start of the input
     end_date_ixs = is_null_matrix.shape[0] - end_offsets - 1
 
+    # For all-null assets, argmin returns 0, making them appear to span the
+    # entire date range. Set start > end so they are never in-lifetime.
+    all_null = is_null_matrix.all(axis=0)
+    start_date_ixs[all_null] = is_null_matrix.shape[0] - 1
+    end_date_ixs[all_null] = 0
+
     return start_date_ixs, end_date_ixs
 
 
@@ -782,7 +788,7 @@ class HDF5DailyBarReader(CurrencyAwareSessionBarReader):
         # If that's the case, the proper NoDataOnDate exception is raised.
         # Otherwise (when there's just a hole in the middle of the data), the
         # nan is returned.
-        if np.isnan(value):
+        if np.issubdtype(np.asarray(value).dtype, np.floating) and np.isnan(value):
             if dt.asm8 < self.asset_start_dates[sid_ix]:
                 raise NoDataBeforeDate()
 

@@ -60,7 +60,7 @@ class ContinuousFutureSessionBarReader(SessionBarReader):
                 start_loc = sessions.get_loc(start)
 
                 if roll_date is not None:
-                    end = roll_date - sessions.freq
+                    end = roll_date - tc.day
                     end_loc = sessions.get_loc(end)
                 else:
                     end = end_date
@@ -228,11 +228,6 @@ class ContinuousFutureMinuteBarReader(SessionBarReader):
                 asset.root_symbol, start_session, end_session, asset.offset
             )
 
-        sessions = tc.sessions_in_range(
-            start_date.normalize().tz_localize(None),
-            end_date.normalize().tz_localize(None),
-        )
-
         minutes = tc.minutes_in_range(start_date, end_date)
         num_minutes = len(minutes)
         shape = num_minutes, len(assets)
@@ -250,7 +245,7 @@ class ContinuousFutureMinuteBarReader(SessionBarReader):
                 sid, roll_date = roll
                 start_loc = minutes.searchsorted(start)
                 if roll_date is not None:
-                    end = tc.session_close(roll_date - sessions.freq)
+                    end = tc.session_close(roll_date - tc.day)
                     end_loc = minutes.searchsorted(end)
                 else:
                     end = end_date
