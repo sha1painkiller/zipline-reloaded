@@ -277,10 +277,10 @@ class Positions:
     """Tracks daily positions."""
 
     def end_of_bar(self, packet, ledger, dt, session_ix, data_portal):
-        packet["minute_perf"]["positions"] = ledger.positions(dt)
+        packet["minute_perf"]["positions"] = ledger.positions
 
     def end_of_session(self, packet, ledger, dt, session_ix, data_portal):
-        packet["daily_perf"]["positions"] = ledger.positions()
+        packet["daily_perf"]["positions"] = ledger.positions
 
 
 class ReturnsStatistic:
@@ -465,6 +465,12 @@ class _ClassicRiskMetrics:
             & (algorithm_returns.index <= end_session)
         ]
 
+        if isinstance(getattr(algorithm_leverages, "index", None), pd.DatetimeIndex):
+            algorithm_leverages = algorithm_leverages[
+                (algorithm_leverages.index >= start_session)
+                & (algorithm_leverages.index <= end_session)
+            ]
+
         # Benchmark needs to be masked to the same dates as the algo returns
         benchmark_ret_tzinfo = benchmark_returns.index.tzinfo
         benchmark_returns = benchmark_returns[
@@ -539,7 +545,7 @@ class _ClassicRiskMetrics:
             return
 
         tzinfo = end_date.tzinfo
-        end_date = end_date
+        end_date = end_date.tz_localize(None) if end_date.tzinfo is not None else end_date
         for period_timestamp in months:
             period = period_timestamp.tz_localize(None).to_period(
                 freq="%dM" % months_per
@@ -547,9 +553,14 @@ class _ClassicRiskMetrics:
             if period.end_time > end_date:
                 break
 
+            end_session_naive = (
+                end_session.tz_localize(None)
+                if end_session.tzinfo is not None
+                else end_session
+            )
             yield cls.risk_metric_period(
                 start_session=period.start_time.tz_localize(tzinfo),
-                end_session=min(period.end_time, end_session).tz_localize(tzinfo),
+                end_session=min(period.end_time, end_session_naive).tz_localize(tzinfo),
                 algorithm_returns=algorithm_returns,
                 benchmark_returns=benchmark_returns,
                 algorithm_leverages=algorithm_leverages,
@@ -596,6 +607,6 @@ class _ClassicRiskMetrics:
                     sessions[0],
                     sessions[-1],
                 ),
-                algorithm_leverages=self._leverages,
+                algorithm_leverages=pd.Series(self._leverages, index=sessions),
             )
         )
