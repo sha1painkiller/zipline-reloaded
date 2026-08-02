@@ -3852,19 +3852,19 @@ class TestOrderCancelation(zf.WithMakeAlgo, zf.ZiplineTestCase):
             assert len(self._caplog.messages) == 0
 
     def test_eod_order_cancel_daily(self):
-        # in daily mode, EODCancel does nothing.
+        # EODCancel cancels unfilled orders at end of day in daily mode.
         algo = self.prep_algo("set_cancel_policy(cancel_policy.EODCancel())", "daily")
 
         results = algo.run()
 
-        # order stays open throughout simulation
-        np.testing.assert_array_equal([1, 1, 1], list(map(len, results.orders)))
+        # order placed on day 0, cancelled at EOD, relay reported on day 1
+        np.testing.assert_array_equal([1, 1, 0], list(map(len, results.orders)))
 
-        # one txn per day
-        np.testing.assert_array_equal([0, 1, 1], list(map(len, results.transactions)))
+        # no transactions since order is cancelled before any fill
+        np.testing.assert_array_equal([0, 0, 0], list(map(len, results.transactions)))
 
         with self._caplog.at_level(logging.WARNING):
-            assert len(self._caplog.messages) == 0
+            assert len(self._caplog.messages) == 1
 
 
 class TestDailyEquityAutoClose(zf.WithMakeAlgo, zf.ZiplineTestCase):

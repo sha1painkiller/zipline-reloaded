@@ -431,14 +431,15 @@ class TradingAlgorithm:
 
         self._in_before_trading_start = True
 
-        with (
-            handle_non_market_minutes(data)
-            if self.data_frequency == "minute"
-            else ExitStack()
-        ):
-            self._before_trading_start(self, data)
-
-        self._in_before_trading_start = False
+        try:
+            with (
+                handle_non_market_minutes(data)
+                if self.data_frequency == "minute"
+                else ExitStack()
+            ):
+                self._before_trading_start(self, data)
+        finally:
+            self._in_before_trading_start = False
 
     def handle_data(self, data):
         if self._handle_data:
@@ -1193,7 +1194,7 @@ class TradingAlgorithm:
                 " Use 'sid()' or 'symbol()' methods to look up an Asset."
             )
 
-        if asset.auto_close_date:
+        if asset.auto_close_date is not None:
             # TODO FIXME TZ MESS
             day = self.trading_calendar.minute_to_session(self.get_datetime())
 
@@ -1300,13 +1301,13 @@ class TradingAlgorithm:
                 msg="order() can only be called from within handle_data()"
             )
 
-        if style:
-            if limit_price:
+        if style is not None:
+            if limit_price is not None:
                 raise UnsupportedOrderParameters(
                     msg="Passing both limit_price and style is not supported."
                 )
 
-            if stop_price:
+            if stop_price is not None:
                 raise UnsupportedOrderParameters(
                     msg="Passing both stop_price and style is not supported."
                 )
@@ -1331,11 +1332,11 @@ class TradingAlgorithm:
         if style:
             assert (limit_price, stop_price) == (None, None)
             return style
-        if limit_price and stop_price:
+        if limit_price is not None and stop_price is not None:
             return StopLimitOrder(limit_price, stop_price, asset=asset)
-        if limit_price:
+        if limit_price is not None:
             return LimitOrder(limit_price, asset=asset)
-        if stop_price:
+        if stop_price is not None:
             return StopOrder(stop_price, asset=asset)
         else:
             return MarketOrder()

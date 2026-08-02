@@ -61,7 +61,7 @@ def fill_price_worse_than_limit_price(fill_price, order):
     bool: Whether the fill price is above the limit price (for a buy) or below
     the limit price (for a sell).
     """
-    if order.limit:
+    if order.limit is not None:
         # this is tricky! if an order with a limit price has reached
         # the limit price, we will try to fill the order. do not fill
         # these shares if the impacted price is worse than the limit
@@ -222,7 +222,7 @@ class NoSlippage(SlippageModel):
     def process_order(data, order):
         return (
             data.current(order.asset, "close"),
-            order.amount,
+            order.open_amount,
         )
 
 
@@ -317,7 +317,7 @@ class VolumeShareSlippage(SlippageModel):
         # Remove this block after fixing data to ensure volume always has
         # corresponding price.
         if isnull(price):
-            return
+            return None, None
         # END
 
         simulated_impact = (
@@ -362,7 +362,7 @@ class FixedSlippage(SlippageModel):
     def process_order(self, data, order):
         price = data.current(order.asset, "close")
 
-        return (price + (self.spread / 2.0 * order.direction), order.amount)
+        return (price + (self.spread / 2.0 * order.direction), order.open_amount)
 
 
 class MarketImpactBase(SlippageModel):
