@@ -82,6 +82,15 @@ HISTORY_FREQUENCIES = set(["1m", "1d"])
 DEFAULT_MINUTE_HISTORY_PREFETCH = 1560
 DEFAULT_DAILY_HISTORY_PREFETCH = 40
 
+# Number of per-asset history windows to keep cached. A universe larger than
+# this thrashes the cache: every full-universe `history` call evicts the
+# windows it is about to need again, and each eviction costs a fresh raw read
+# plus a fresh adjustment load. Daily windows hold only
+# DEFAULT_DAILY_HISTORY_PREFETCH bars each, so they are cheap enough to cache
+# for a whole market; minute windows are ~40x larger, so they stay bounded.
+DEFAULT_DAILY_HISTORY_SID_CACHE_SIZE = 12000
+DEFAULT_MINUTE_HISTORY_SID_CACHE_SIZE = 1000
+
 _DEF_M_HIST_PREFETCH = DEFAULT_MINUTE_HISTORY_PREFETCH
 _DEF_D_HIST_PREFETCH = DEFAULT_DAILY_HISTORY_PREFETCH
 
@@ -126,6 +135,13 @@ class DataPortal:
         The last session to make available in session-level data.
     last_available_minute : pd.Timestamp, optional
         The last minute to make available in minute-level data.
+    minute_history_sid_cache_size : int, optional
+        Number of per-asset minute history windows to keep cached.
+    daily_history_sid_cache_size : int, optional
+        Number of per-asset daily history windows to keep cached. Should be
+        at least as large as the number of assets the algorithm requests
+        history for in one call, or the cache evicts windows it is about to
+        need again.
     """
 
     def __init__(
@@ -142,6 +158,8 @@ class DataPortal:
         last_available_minute=None,
         minute_history_prefetch_length=_DEF_M_HIST_PREFETCH,
         daily_history_prefetch_length=_DEF_D_HIST_PREFETCH,
+        minute_history_sid_cache_size=DEFAULT_MINUTE_HISTORY_SID_CACHE_SIZE,
+        daily_history_sid_cache_size=DEFAULT_DAILY_HISTORY_SID_CACHE_SIZE,
     ):
         self.trading_calendar = trading_calendar
 
@@ -256,6 +274,7 @@ class DataPortal:
             self._adjustment_reader,
             self.asset_finder,
             self._roll_finders,
+            sid_cache_size=daily_history_sid_cache_size,
             prefetch_length=daily_history_prefetch_length,
         )
         self._minute_history_loader = MinuteHistoryLoader(
@@ -264,6 +283,7 @@ class DataPortal:
             self._adjustment_reader,
             self.asset_finder,
             self._roll_finders,
+            sid_cache_size=minute_history_sid_cache_size,
             prefetch_length=minute_history_prefetch_length,
         )
 
@@ -1081,8 +1101,26 @@ class DataPortal:
 
         return adjustments
 
+    def _splits_lower_bound(self, dt):
+        """The exclusive lower bound of the split window ending at ``dt``.
+
+        This is the session preceding ``dt``, so that ``get_splits`` covers
+        everything that became effective since the last time it was asked.
+        """
+        sessions = self.trading_calendar.sessions
+        naive_dt = dt.tz_localize(None) if dt.tzinfo is not None else dt
+
+        loc = sessions.searchsorted(naive_dt)
+        if loc == 0:
+            # No previous session to reach back to; fall back to matching
+            # `dt` alone.
+            return naive_dt - pd.Timedelta(days=1)
+
+        return sessions[loc - 1]
+
     def get_splits(self, assets, dt):
-        """Returns any splits for the given sids and the given dt.
+        """Returns any splits for the given sids that became effective in the
+        window (previous session, dt].
 
         Parameters
         ----------
@@ -1096,6 +1134,16 @@ class DataPortal:
         -------
         splits : list[(asset, float)]
             List of splits, where each split is a (asset, ratio) tuple.
+
+        Notes
+        -----
+        Splits are matched over a window rather than on ``dt`` exactly.
+        Bundles are not required to place split effective dates on trading
+        sessions, and an effective date landing on a weekend or an exchange
+        holiday would never equal any session label. Such a split used to be
+        skipped entirely, so the position's share count was never adjusted
+        while the pricing data around it was adjusted anyway - the position
+        would appear to lose (or gain) the whole split ratio overnight.
         """
         if self._adjustment_reader is None or not assets:
             return []
@@ -1103,9 +1151,12 @@ class DataPortal:
         # convert dt to # of seconds since epoch, because that's what we use
         # in the adjustments db
         seconds = int(dt.value / 1e9)
+        lower_bound = int(self._splits_lower_bound(dt).value / 1e9)
 
         splits = self._adjustment_reader.conn.execute(
-            "SELECT sid, ratio FROM SPLITS WHERE effective_date = ?", (seconds,)
+            "SELECT sid, ratio FROM SPLITS "
+            "WHERE effective_date > ? AND effective_date <= ?",
+            (lower_bound, seconds),
         ).fetchall()
 
         splits = [split for split in splits if split[0] in assets]

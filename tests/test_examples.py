@@ -50,7 +50,14 @@ def _no_benchmark_expectations_applied(expected_perf):
     return expected_perf
 
 
-def _stored_pd_data(skip_vers=["0-18-1", "0-19-2", "0-22-0", "1-1-3", "1-2-3"]):
+# Versions whose stored perf predates a deliberate change in simulation
+# results and so can no longer be compared against a live run. "1-1-5" and
+# "1-2-4" were recorded while dividends with a missing pay_date were being
+# dropped instead of paid (see finance/ledger.py:_resolve_pay_date), and
+# cannot be regenerated without those versions of pandas installed.
+def _stored_pd_data(
+    skip_vers=["0-18-1", "0-19-2", "0-22-0", "1-1-3", "1-2-3", "1-1-5", "1-2-4"],
+):
     with tarfile.open(join(TEST_RESOURCE_PATH, "example_data.tar.gz")) as tar:
         pd_versions = {
             n.split("/")[2]

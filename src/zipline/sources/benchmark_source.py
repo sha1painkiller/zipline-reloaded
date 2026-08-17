@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import pandas as pd
 
 from zipline.errors import (
@@ -20,6 +22,8 @@ from zipline.errors import (
     BenchmarkAssetNotAvailableTooEarly,
     BenchmarkAssetNotAvailableTooLate,
 )
+
+log = logging.getLogger("BenchmarkSource")
 
 
 class BenchmarkSource:
@@ -48,9 +52,27 @@ class BenchmarkSource:
                 benchmark_asset, trading_calendar, sessions, data_portal
             )
         elif benchmark_returns is not None:
-            self._daily_returns = daily_series = benchmark_returns.reindex(
-                sessions,
-            ).fillna(0)
+            reindexed = benchmark_returns.reindex(sessions)
+
+            # Sessions the benchmark file doesn't cover become 0% days. That
+            # is a reasonable default, but silently treating a truncated or
+            # stale benchmark as "flat" quietly corrupts every
+            # benchmark-relative statistic (alpha, beta, excess return), so
+            # say how much of the series was invented.
+            missing = int(reindexed.isna().sum())
+            if missing:
+                log.warning(
+                    "Benchmark returns are missing for %d of %d sessions"
+                    " (%s to %s); those sessions will be treated as 0%%"
+                    " returns. Alpha, beta and excess return will be"
+                    " understated over that span.",
+                    missing,
+                    len(sessions),
+                    sessions[0].date(),
+                    sessions[-1].date(),
+                )
+
+            self._daily_returns = daily_series = reindexed.fillna(0)
 
             if self.emission_rate == "minute":
                 # we need to take the env's benchmark returns, which are daily,

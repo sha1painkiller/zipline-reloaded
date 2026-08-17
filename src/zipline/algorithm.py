@@ -519,12 +519,9 @@ class TradingAlgorithm:
                 execution_closes = market_closes
                 execution_opens = market_closes
 
-        # FIXME generalize these values
-        before_trading_start_minutes = days_at_time(
-            self.sim_params.sessions,
-            time(8, 45),
-            "US/Eastern",
-            day_offset=0,
+        before_trading_start_minutes = self._before_trading_start_minutes(
+            execution_opens,
+            execution_closes,
         )
 
         return MinuteSimulationClock(
@@ -534,6 +531,35 @@ class TradingAlgorithm:
             before_trading_start_minutes,
             minute_emission=minutely_emission,
         )
+
+    def _before_trading_start_minutes(self, execution_opens, execution_closes):
+        """The minute on which to fire ``before_trading_start`` each session.
+
+        Defaults to 08:45 US/Eastern, which is 45 minutes before the US
+        equity open. That anchor is meaningless on a calendar that trades
+        outside US hours: for a session that has already closed by 08:45
+        US/Eastern, the minute lands after the close, and
+        ``MinuteSimulationClock`` drops any ``before_trading_start`` minute
+        that falls past the end of its session. The hook - and with it every
+        pipeline attached to the algorithm - would simply never run, without
+        raising. Those sessions fall back to 45 minutes before their own
+        open.
+        """
+        default = days_at_time(
+            self.sim_params.sessions,
+            time(8, 45),
+            "US/Eastern",
+            day_offset=0,
+        )
+
+        # `execution_opens` is the last minute of the session in daily mode,
+        # so this lands before the session's only bar either way.
+        fallback = pd.DatetimeIndex(execution_opens) - pd.Timedelta(minutes=45)
+        after_close = default > pd.DatetimeIndex(execution_closes)
+        if not after_close.any():
+            return default
+
+        return default.where(~after_close, fallback)
 
     def _create_benchmark_source(self):
         if self.benchmark_sid is not None:

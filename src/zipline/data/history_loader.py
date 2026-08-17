@@ -38,6 +38,22 @@ from zipline.utils.pandas_utils import find_in_sorted_index
 DEFAULT_ASSET_PRICE_DECIMALS = 3
 
 
+def merge_adjustments(into, other):
+    """Merge one ``{loc -> [adjustment]}`` mapping into another, in place.
+
+    Assets routinely share an ex-date, so two assets in the same window can
+    produce adjustments at the same location. A plain ``dict.update`` would
+    drop all but the last asset's adjustments at that location, silently
+    leaving the rest of the window unadjusted.
+    """
+    for loc, adjustments in other.items():
+        if loc in into:
+            into[loc].extend(adjustments)
+        else:
+            into[loc] = list(adjustments)
+    return into
+
+
 class HistoryCompatibleUSEquityAdjustmentReader:
     def __init__(self, adjustment_reader):
         self._adjustments_reader = adjustment_reader
@@ -55,7 +71,9 @@ class HistoryCompatibleUSEquityAdjustmentReader:
         for i, column in enumerate(columns):
             adjs = {}
             for asset in assets:
-                adjs.update(self._get_adjustments_in_range(asset, dts, column))
+                merge_adjustments(
+                    adjs, self._get_adjustments_in_range(asset, dts, column)
+                )
             out[i] = adjs
         return out
 
@@ -164,7 +182,9 @@ class ContinuousFutureAdjustmentReader:
         for i, column in enumerate(columns):
             adjs = {}
             for asset in assets:
-                adjs.update(self._get_adjustments_in_range(asset, dts, column))
+                merge_adjustments(
+                    adjs, self._get_adjustments_in_range(asset, dts, column)
+                )
             out[i] = adjs
         return out
 

@@ -137,7 +137,35 @@ class PositionTracker:
 
         return total_leftover_cash
 
-    def earn_dividends(self, cash_dividends, stock_dividends):
+    def _resolve_pay_date(self, dividend, ex_date):
+        """Pick the date on which ``dividend`` should be paid out.
+
+        Bundles are not required to populate ``pay_date``, and several in the
+        wild leave it null. A missing pay date used to sink the dividend
+        without a trace: it was filed under ``NaT``, which never compares
+        equal to a session, so the cash was earned and then never paid. Fall
+        back to the ex date instead, which credits the cash on the same
+        session that the price drops for going ex - the standard total-return
+        convention, and the closest thing to correct that we can do without
+        the real pay date.
+        """
+        pay_date = dividend.pay_date
+        if not pd.isnull(pay_date):
+            return pay_date
+
+        if ex_date is None:
+            # No fallback available. Warn loudly rather than silently
+            # swallowing the payment.
+            log.warning(
+                "Dropping dividend for %s with no pay_date and no ex_date to"
+                " fall back on; this payment will never be made.",
+                dividend.asset,
+            )
+            return pay_date
+
+        return ex_date
+
+    def earn_dividends(self, cash_dividends, stock_dividends, ex_date=None):
         """Given a list of dividends whose ex_dates are all the next trading
         day, calculate and store the cash and/or stock payments to be paid on
         each dividend's pay date.
@@ -148,6 +176,10 @@ class PositionTracker:
 
         stock_dividends: iterable of (asset, payment_asset, ratio, pay_date)
             namedtuples.
+
+        ex_date : pd.Timestamp, optional
+            The session on which these dividends go ex. Used as the pay date
+            for any dividend whose own ``pay_date`` is missing.
         """
         for cash_dividend in cash_dividends:
             self._dirty_stats = True  # only mark dirty if we pay a dividend
@@ -157,10 +189,8 @@ class PositionTracker:
             div_owed = self.positions[cash_dividend.asset].earn_dividend(
                 cash_dividend,
             )
-            try:
-                self._unpaid_dividends[cash_dividend.pay_date].append(div_owed)
-            except KeyError:
-                self._unpaid_dividends[cash_dividend.pay_date] = [div_owed]
+            pay_date = self._resolve_pay_date(cash_dividend, ex_date)
+            self._unpaid_dividends.setdefault(pay_date, []).append(div_owed)
 
         for stock_dividend in stock_dividends:
             self._dirty_stats = True  # only mark dirty if we pay a dividend
@@ -168,14 +198,41 @@ class PositionTracker:
             div_owed = self.positions[stock_dividend.asset].earn_stock_dividend(
                 stock_dividend
             )
+            pay_date = self._resolve_pay_date(stock_dividend, ex_date)
+            self._unpaid_stock_dividends.setdefault(pay_date, []).append(div_owed)
+
+    @staticmethod
+    def _due_pay_dates(unpaid, next_trading_day):
+        """The keys of ``unpaid`` that have come due as of ``next_trading_day``.
+
+        Pay dates are matched with ``<=`` rather than by equality so that a
+        pay date which is not itself a trading session - a weekend, an
+        exchange holiday, or a date outside the simulation's calendar - is
+        paid out on the first session at or after it instead of being
+        dropped. Equality matching silently lost those payments.
+        """
+        due = []
+        for pay_date in unpaid:
+            if pd.isnull(pay_date):
+                continue
             try:
-                self._unpaid_stock_dividends[stock_dividend.pay_date].append(
-                    div_owed,
+                is_due = pay_date <= next_trading_day
+            except TypeError:
+                # Naive/aware mismatch between the bundle's pay dates and the
+                # simulation calendar. Comparing would raise, and skipping
+                # would silently lose the payment, so say so.
+                log.warning(
+                    "Cannot compare dividend pay_date %s with session %s;"
+                    " these payments will not be made.",
+                    pay_date,
+                    next_trading_day,
                 )
-            except KeyError:
-                self._unpaid_stock_dividends[stock_dividend.pay_date] = [
-                    div_owed,
-                ]
+                continue
+            if is_due:
+                due.append(pay_date)
+
+        # Sort so that payment order does not depend on dict insertion order.
+        return sorted(due)
 
     def pay_dividends(self, next_trading_day):
         """
@@ -185,38 +242,31 @@ class PositionTracker:
         """
         net_cash_payment = 0.0
 
-        try:
-            payments = self._unpaid_dividends[next_trading_day]
-            # Mark these dividends as paid by dropping them from our unpaid
-            del self._unpaid_dividends[next_trading_day]
-        except KeyError:
-            payments = []
-
         # representing the fact that we're required to reimburse the owner of
         # the stock for any dividends paid while borrowing.
-        for payment in payments:
-            net_cash_payment += payment["amount"]
+        for pay_date in self._due_pay_dates(self._unpaid_dividends, next_trading_day):
+            # Mark these dividends as paid by dropping them from our unpaid
+            for payment in self._unpaid_dividends.pop(pay_date):
+                net_cash_payment += payment["amount"]
 
         # Add stock for any stock dividends paid.  Again, the values here may
         # be negative in the case of short positions.
-        try:
-            stock_payments = self._unpaid_stock_dividends[next_trading_day]
-        except KeyError:
-            stock_payments = []
+        for pay_date in self._due_pay_dates(
+            self._unpaid_stock_dividends, next_trading_day
+        ):
+            for stock_payment in self._unpaid_stock_dividends.pop(pay_date):
+                payment_asset = stock_payment["payment_asset"]
+                share_count = stock_payment["share_count"]
+                # note we create a Position for stock dividend if we don't
+                # already own the asset
+                if payment_asset in self.positions:
+                    position = self.positions[payment_asset]
+                else:
+                    position = self.positions[payment_asset] = Position(
+                        payment_asset,
+                    )
 
-        for stock_payment in stock_payments:
-            payment_asset = stock_payment["payment_asset"]
-            share_count = stock_payment["share_count"]
-            # note we create a Position for stock dividend if we don't
-            # already own the asset
-            if payment_asset in self.positions:
-                position = self.positions[payment_asset]
-            else:
-                position = self.positions[payment_asset] = Position(
-                    payment_asset,
-                )
-
-            position.amount += share_count
+                position.amount += share_count
 
         return net_cash_payment
 
@@ -573,9 +623,13 @@ class Ledger:
 
             # Earning a dividend just marks that we need to get paid out on
             # the dividend's pay-date. This does not affect our cash yet.
+            # These were all queried by ex-date, so `next_session` is their ex
+            # date, and stands in as the pay date for any dividend the bundle
+            # left without one.
             position_tracker.earn_dividends(
                 cash_dividends,
                 stock_dividends,
+                ex_date=next_session,
             )
 
         # Pay out the dividends whose pay-date is the next session. This does
