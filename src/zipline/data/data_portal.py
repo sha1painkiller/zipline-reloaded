@@ -368,7 +368,7 @@ class DataPortal:
         group_names = grouped_by_sid.groups.keys()
         group_dict = {}
         for group_name in group_names:
-            group_dict[group_name] = grouped_by_sid.get_group(group_name)
+            group_dict[group_name] = grouped_by_sid.get_group((group_name,))
 
         # This will be the dataframe which we query to get fetcher assets at
         # any given time. Get's overwritten every time there's a new fetcher

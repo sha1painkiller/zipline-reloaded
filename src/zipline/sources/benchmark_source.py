@@ -202,7 +202,7 @@ class BenchmarkSource:
             minutely_returns.index,
         )
         closes = trading_calendar.closes[sessions[0] : sessions[-1]]
-        daily_returns = minutely_returns[closes].pct_change()
+        daily_returns = minutely_returns[closes].ffill().pct_change(fill_method=None)
         daily_returns.index = closes.index
         return daily_returns.iloc[1:]
 
@@ -259,7 +259,7 @@ class BenchmarkSource:
             )[asset]
 
             return (
-                benchmark_series.pct_change()[1:],
+                benchmark_series.ffill().pct_change(fill_method=None)[1:],
                 self.downsample_minute_return_series(
                     trading_calendar,
                     benchmark_series,
@@ -282,7 +282,7 @@ class BenchmarkSource:
                 ffill=True,
             )[asset]
 
-            returns = benchmark_series.pct_change()[1:]
+            returns = benchmark_series.ffill().pct_change(fill_method=None)[1:]
             return returns, returns
         elif start_date == trading_days[0]:
             # Attempt to handle case where stock data starts on first
@@ -313,8 +313,8 @@ class BenchmarkSource:
 
             first_day_return = (first_close - first_open) / first_open
 
-            returns = benchmark_series.pct_change()[:]
-            returns[0] = first_day_return
+            returns = benchmark_series.ffill().pct_change(fill_method=None)[:]
+            returns.iloc[0] = first_day_return
             return returns, returns
         else:
             raise ValueError(

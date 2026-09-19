@@ -503,7 +503,8 @@ class MarketImpactBase(SlippageModel):
             # always just NaN.
             close_volatility = (
                 close_history[:-1]
-                .pct_change()[1:]
+                .ffill()
+                .pct_change(fill_method=None)[1:]
                 .std(
                     skipna=False,
                 )
