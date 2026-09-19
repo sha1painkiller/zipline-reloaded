@@ -272,8 +272,13 @@ class TestCSVDIRBundle:
         return pricing, adjustments
 
     @skip_on(PermissionError)
-    def test_bundle(self):
+    def test_bundle(self, tmp_path):
         environ = {
+            # Without a ZIPLINE_ROOT of its own this ingests into the developer's
+            # real ~/.zipline and leaves a "csvdir" bundle behind on every run,
+            # shadowing whatever they had ingested under that name. The quandl
+            # bundle test already scopes itself this way.
+            "ZIPLINE_ROOT": str(tmp_path),
             "CSVDIR": join(
                 TEST_RESOURCE_PATH,
                 "csvdir_samples",
