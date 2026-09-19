@@ -23,8 +23,6 @@ import numpy as np
 from zipline.pipeline.data import EquityPricing
 from zipline.utils.input_validation import expect_types
 from zipline.utils.math_utils import (
-    nanargmax,
-    nanmax,
     nanmean,
     nanstd,
     nansum,
@@ -158,14 +156,23 @@ class MaxDrawdown(SingleInputMixin, CustomFactor):
     # ctx = ignore_nanwarnings()
 
     def compute(self, today, assets, out, data):
-        drawdowns = fmax.accumulate(data, axis=0) - data
-        drawdowns[isnan(drawdowns)] = -np.inf
-        drawdown_ends = nanargmax(drawdowns, axis=0)
-
-        # TODO: Accelerate this loop in Cython or Numba.
-        for i, end in enumerate(drawdown_ends):
-            peak = nanmax(data[: end + 1, i])
-            out[i] = (peak - data[end, i]) / data[end, i]
+        # Drawdown is measured against the running peak, so the decline is
+        # divided by the peak rather than by the trough, and the worst one is
+        # the largest *percentage* decline rather than the largest absolute
+        # one. Both of these used to be the other way round, which reported
+        # drawdowns deeper than they were (a fall from 100 to 50 came back as
+        # 100% rather than 50%) and, on a series that had grown a lot, could
+        # pick a later, shallower decline as the worst. This now agrees with
+        # ``empyrical.max_drawdown``, which is what zipline's own risk metrics
+        # report.
+        peaks = fmax.accumulate(data, axis=0)
+        with np_errstate(divide="ignore", invalid="ignore"):
+            ratios = data / peaks
+        # Columns where the asset had no data have nothing to report; +inf
+        # never wins the min below, so they fall out as nan.
+        ratios[isnan(ratios)] = np.inf
+        troughs = ratios.min(axis=0)
+        out[:] = np.where(np.isinf(troughs), np.nan, 1 - troughs)
 
 
 class AverageDollarVolume(CustomFactor):

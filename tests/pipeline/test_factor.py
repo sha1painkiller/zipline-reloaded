@@ -1957,3 +1957,50 @@ class SummaryTestCase(BaseUSEquityPipelineTestCase, ZiplineTestCase):
             summarized = getattr(f, method)()
             assert repr(summarized) == "MyFactor().{}()".format(method)
             assert summarized.recursive_repr() == "MyFactor().{}()".format(method)
+
+
+class TestMaxDrawdown:
+    """MaxDrawdown measures the decline against the running peak.
+
+    ``tests/pipeline/test_engine.py::test_drawdown`` only feeds it
+    monotonically-increasing data, so every expected value there is 0 or nan
+    and the formula itself was never pinned down.
+    """
+
+    def compute(self, data):
+        from zipline.pipeline.factors import MaxDrawdown
+
+        data = np.asarray(data, dtype=np.float64)
+        out = np.empty(data.shape[1], dtype=np.float64)
+        MaxDrawdown(
+            inputs=(EquityPricing.close,), window_length=len(data)
+        ).compute(pd.Timestamp("2014"), np.arange(data.shape[1]), out, data)
+        return out
+
+    def test_decline_is_measured_against_the_peak(self):
+        # 100 -> 50 is a 50% drawdown, not a 100% one.
+        assert_equal(self.compute([[100.0], [50.0]]), np.array([0.5]))
+
+    def test_worst_decline_wins_even_when_it_is_not_the_largest_absolute_one(self):
+        # The 100 -> 90 fall is 10 points but only 10%; the later 20 -> 10
+        # fall is 10 points and 50%. The 50% one is the max drawdown.
+        assert_equal(self.compute([[100.0], [90.0], [200.0], [20.0], [10.0]]),
+                     np.array([0.95]))
+
+    def test_monotonically_increasing_has_no_drawdown(self):
+        assert_equal(self.compute([[1.0], [2.0], [3.0]]), np.array([0.0]))
+
+    def test_all_nan_column_is_nan(self):
+        out = self.compute([[np.nan, 100.0], [np.nan, 25.0]])
+        assert np.isnan(out[0])
+        assert_equal(out[1:], np.array([0.75]))
+
+    def test_matches_empyrical(self):
+        import empyrical
+
+        prices = np.array([100.0, 120.0, 90.0, 95.0, 60.0, 80.0])
+        returns = pd.Series(prices).pct_change().dropna()
+        expected = -empyrical.max_drawdown(returns)
+        np.testing.assert_allclose(
+            self.compute(prices.reshape(-1, 1)), np.array([expected])
+        )
