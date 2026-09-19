@@ -2,61 +2,11 @@
 Utilities for validating inputs to user-facing API functions.
 """
 
-import sys
 from textwrap import dedent
-from types import CodeType
 from uuid import uuid4
-
-from toolz.curried.operator import getitem
 
 from zipline.utils.compat import getargspec, wraps
 
-if sys.version_info[0:2] < (3, 7):
-    _code_argorder_head = ("co_argcount", "co_kwonlyargcount")
-else:
-    _code_argorder_head = (
-        "co_argcount",
-        "co_posonlyargcount",
-        "co_kwonlyargcount",
-    )
-
-_code_argorder_body = (
-    "co_nlocals",
-    "co_stacksize",
-    "co_flags",
-    "co_code",
-    "co_consts",
-    "co_names",
-    "co_varnames",
-    "co_filename",
-    "co_name",
-)
-
-_code_argorder_tail = (
-    "co_freevars",
-    "co_cellvars",
-)
-
-if sys.version_info[0:2] <= (3, 10):
-    _code_argorder = (
-        _code_argorder_head
-        + _code_argorder_body
-        + ("co_firstlineno", "co_lnotab")
-        + _code_argorder_tail
-    )
-
-else:
-    _code_argorder = (
-        _code_argorder_head
-        + _code_argorder_body
-        + (
-            "co_qualname",  # new in 3.11
-            "co_firstlineno",
-            "co_lnotab",
-            "co_exceptiontable",  # new in 3.11
-        )
-        + _code_argorder_tail
-    )
 NO_DEFAULT = object()
 
 
@@ -247,24 +197,35 @@ def _build_preprocessed_function(func, processors, args_defaults, varargs, varkw
     exec(compiled, exec_globals, exec_locals)
     new_func = exec_locals[func.__name__]
 
-    code = new_func.__code__
-    args = {attr: getattr(code, attr) for attr in dir(code) if attr.startswith("co_")}
     # Copy the firstlineno out of the underlying function so that exceptions
     # get raised with the correct traceback.
     # This also makes dynamic source inspection (like IPython `??` operator)
     # work as intended.
     try:
         # Try to get the pycode object from the underlying function.
-        _ = func.__code__
+        func_code = func.__code__
     except AttributeError:
         try:
             # The underlying callable was not a function, try to grab the
             # `__func__.__code__` which exists on method objects.
-            _ = func.__func__.__code__
+            func_code = func.__func__.__code__
         except AttributeError:
             # The underlying callable does not have a `__code__`. There is
             # nothing for us to correct.
             return new_func
 
-    new_func.__code__ = CodeType(*map(getitem(args), _code_argorder))
+    # This used to rebuild the code object field by field, reading every
+    # ``co_*`` attribute off ``new_func`` and handing them to ``CodeType`` in a
+    # hand-maintained order. Two things were wrong with that. The line table
+    # was passed as ``co_lnotab`` while CodeType has taken ``co_linetable``
+    # since 3.11, so the rebuilt object carried a line table that did not
+    # describe its own bytecode: tracebacks through any preprocessed function
+    # reported line -1, and ``traceback.extract_tb`` raised RuntimeError
+    # outright. And the firstlineno this comment promises to copy was never
+    # actually copied - the lookup result was discarded - so the rebuild was
+    # otherwise a no-op. ``replace`` keeps every other field intact and
+    # renumbers the line table for us.
+    new_func.__code__ = new_func.__code__.replace(
+        co_firstlineno=func_code.co_firstlineno
+    )
     return new_func
