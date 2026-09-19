@@ -552,7 +552,15 @@ def _make_bundle_core():
         """
         if timestamp is None:
             timestamp = pd.Timestamp.now("UTC")
-        timestr = most_recent_data(name, timestamp, environ=environ)
+        # ``most_recent_data`` hands back a full path, but every
+        # ``*_path`` helper below wants just the ingestion directory
+        # name and joins it onto the data root itself. Passing the path
+        # through only happened to work because ``os.path.join`` drops
+        # everything before an absolute component; with a relative
+        # ZIPLINE_ROOT it produced a doubled path that exists nowhere.
+        timestr = os.path.basename(
+            most_recent_data(name, timestamp, environ=environ).rstrip(os.sep)
+        )
         return BundleData(
             asset_finder=AssetFinder(
                 asset_db_path(name, timestr, environ=environ),
