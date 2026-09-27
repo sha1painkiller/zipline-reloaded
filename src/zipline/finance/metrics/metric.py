@@ -23,6 +23,7 @@ import pandas as pd
 
 from zipline.utils.exploding_object import NamedExplodingObject
 from zipline.finance._finance_ext import minute_annual_volatility
+from zipline.utils.pandas_utils import datetime_to_ns
 
 
 class SimpleLedgerField:
@@ -175,7 +176,7 @@ class BenchmarkReturnsAndVolatility:
             self._minute_cumulative_returns = (1 + returns).cumprod() - 1
             self._minute_annual_volatility = pd.Series(
                 minute_annual_volatility(
-                    returns.index.normalize().view("int64"),
+                    datetime_to_ns(returns.index.normalize()),
                     returns.values,
                     daily_returns_array,
                 ),

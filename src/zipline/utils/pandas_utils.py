@@ -25,6 +25,38 @@ skip_pipeline_new_pandas = (
 PANDAS_210_OR_LATER = pandas_version >= Version("2.1.0")
 
 
+def datetime_to_ns(values):
+    """Convert datetime-like values to int64 nanoseconds since the epoch.
+
+    Zipline stores and compares datetimes as nanosecond integers, but pandas
+    3 no longer guarantees nanosecond resolution: parsed and constructed
+    datetimes are often ``datetime64[us]`` (or coarser), and ``.asi8`` /
+    ``.astype(int64)`` / ``.view(int64)`` return integers in the value's own
+    unit. Always convert through this helper instead.
+
+    Parameters
+    ----------
+    values : pd.Timestamp, np.datetime64, pd.DatetimeIndex, pd.Series or
+             np.ndarray[datetime64]
+        tz-aware values are converted as UTC.
+
+    Returns
+    -------
+    ns : int or np.ndarray[int64]
+    """
+    if isinstance(values, pd.Timestamp):
+        return values.value
+    if isinstance(values, np.datetime64):
+        return int(values.astype("datetime64[ns]").astype(np.int64))
+    if isinstance(values, pd.Series):
+        values = pd.DatetimeIndex(values)
+    if isinstance(values, pd.DatetimeIndex):
+        if hasattr(values, "as_unit"):
+            values = values.as_unit("ns")
+        return values.asi8
+    return np.asarray(values).astype("datetime64[ns]").view(np.int64)
+
+
 def july_5th_holiday_observance(datetime_index):
     return datetime_index[datetime_index.year != 2013]
 

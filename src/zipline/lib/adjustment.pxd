@@ -146,7 +146,7 @@ cdef class Float641DArrayOverwrite(ArrayAdjustment):
            [ 4.,  16.,  17.,  18.,  19.],
            [ 20.,  21.,  22.,  23.,  24.]])
     """
-    cdef public np.float64_t[:] values
+    cdef public const np.float64_t[:] values
     cpdef mutate(self, np.float64_t[:, :] data)
 
 
@@ -184,7 +184,7 @@ cdef class Datetime641DArrayOverwrite(ArrayAdjustment):
        [False, False, False],
        [False,  True,  True]], dtype=bool)
     """
-    cdef public np.int64_t[:] values
+    cdef public const np.int64_t[:] values
     cpdef mutate(self, np.int64_t[:, :] data)
 
 
@@ -200,7 +200,7 @@ cdef class Boolean1DArrayOverwrite(ArrayAdjustment):
     """
     An adjustment that overwrites subarrays with a value for each subarray.
     """
-    cdef public np.uint8_t[:] values
+    cdef public const np.uint8_t[:] values
     cpdef mutate(self, np.uint8_t[:, :] data)
 
 

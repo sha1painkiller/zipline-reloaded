@@ -133,18 +133,26 @@ def csvdir_bundle(
                 "'daily' and 'minute' directories " "not found in '%s'" % csvdir
             )
 
+    # Typed empty frames: pandas 3 no longer ignores empty/all-NA entries when
+    # concatenating, so untyped (object) seeds would make every column object.
     divs_splits = {
         "divs": pd.DataFrame(
-            columns=[
-                "sid",
-                "amount",
-                "ex_date",
-                "record_date",
-                "declared_date",
-                "pay_date",
-            ]
+            {
+                "sid": pd.Series(dtype="int64"),
+                "amount": pd.Series(dtype="float64"),
+                "ex_date": pd.Series(dtype="datetime64[ns]"),
+                "record_date": pd.Series(dtype="datetime64[ns]"),
+                "declared_date": pd.Series(dtype="datetime64[ns]"),
+                "pay_date": pd.Series(dtype="datetime64[ns]"),
+            }
         ),
-        "splits": pd.DataFrame(columns=["sid", "ratio", "effective_date"]),
+        "splits": pd.DataFrame(
+            {
+                "sid": pd.Series(dtype="int64"),
+                "ratio": pd.Series(dtype="float64"),
+                "effective_date": pd.Series(dtype="datetime64[ns]"),
+            }
+        ),
     }
     for tframe in tframes:
         ddir = os.path.join(csvdir, tframe)

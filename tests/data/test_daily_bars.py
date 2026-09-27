@@ -593,7 +593,7 @@ class BcolzDailyBarTestCase(WithBcolzEquityDailyBarReader, _DailyBarsTestCase):
         all_expected = self.make_equity_daily_bar_currency_codes(
             self.DAILY_BARS_TEST_QUERY_COUNTRY_CODE,
             all_assets,
-        ).values
+        ).to_numpy(dtype=object)
         assert_equal(all_results, all_expected)
 
         assert all_results.dtype == np.dtype(object)
@@ -1047,7 +1047,7 @@ class _HDF5DailyBarTestCase(
         all_expected = self.make_equity_daily_bar_currency_codes(
             self.DAILY_BARS_TEST_QUERY_COUNTRY_CODE,
             all_assets,
-        ).values
+        ).to_numpy(dtype=object)
         assert_equal(all_results, all_expected)
 
         assert all_results.dtype == np.dtype(object)

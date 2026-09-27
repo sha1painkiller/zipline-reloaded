@@ -493,7 +493,7 @@ class USEquityPricingLoaderTestCase(WithAdjustmentReader, ZiplineTestCase):
                 for colname in reader._datetime_int_cols[name]:
                     expected_df[colname] = pd.to_datetime(
                         expected_df[colname], unit="s"
-                    )
+                    ).astype("datetime64[ns]")
 
             return expected_df
 
@@ -503,7 +503,11 @@ class USEquityPricingLoaderTestCase(WithAdjustmentReader, ZiplineTestCase):
             for colname in reader._datetime_int_cols[name]:
                 if not convert_dts:
                     expected_df[colname] = (
-                        expected_df[colname].astype("datetime64[s]").view(int)
+                        expected_df[colname].astype("datetime64[s]").astype("int64")
+                    )
+                else:
+                    expected_df[colname] = expected_df[colname].astype(
+                        "datetime64[ns]"
                     )
 
             return expected_df

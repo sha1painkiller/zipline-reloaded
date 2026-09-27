@@ -536,7 +536,7 @@ cdef class Float641DArrayOverwrite(ArrayAdjustment):
                  int64_t last_row,
                  int64_t first_col,
                  int64_t last_col,
-                 float64_t[:] values):
+                 const float64_t[:] values):
         super(Float641DArrayOverwrite, self).__init__(
             first_row=first_row,
             last_row=last_row,
@@ -552,7 +552,7 @@ cdef class Float641DArrayOverwrite(ArrayAdjustment):
 
     cpdef mutate(self, float64_t[:, :] data):
         cdef Py_ssize_t i, row, col
-        cdef float64_t[:] values = self.values
+        cdef const float64_t[:] values = self.values
         for col in range(self.first_col, self.last_col + 1):
             for i, row in enumerate(range(self.first_row, self.last_row + 1)):
                 data[row, col] = values[i]
@@ -613,7 +613,7 @@ cdef class Datetime641DArrayOverwrite(ArrayAdjustment):
 
     cpdef mutate(self, int64_t[:, :] data):
         cdef Py_ssize_t i, row, col
-        cdef int64_t[:] values = self.values
+        cdef const int64_t[:] values = self.values
         for col in range(self.first_col, self.last_col + 1):
             for i, row in enumerate(range(self.first_row, self.last_row + 1)):
                 data[row, col] = values[i]
@@ -685,7 +685,7 @@ cdef class Boolean1DArrayOverwrite(ArrayAdjustment):
 
     cpdef mutate(self, np.uint8_t[:, :] data):
         cdef Py_ssize_t i, row, col
-        cdef np.uint8_t[:] values = self.values
+        cdef const np.uint8_t[:] values = self.values
         for col in range(self.first_col, self.last_col + 1):
             for i, row in enumerate(range(self.first_row, self.last_row + 1)):
                 data[row, col] = values[i]
@@ -837,13 +837,9 @@ cdef datetime_to_int(object datetimelike):
     if not isinstance(datetimelike, datetime64):
         raise TypeError("Expected datetime64, got %s" % type(datetimelike))
 
-    elif datetimelike.dtype.name != 'datetime64[ns]':
-        raise TypeError(
-            "Expected datetime64[ns], got %s",
-            datetimelike.dtype.name,
-        )
-
-    return datetimelike.astype(int64)
+    # pandas 3 no longer guarantees nanosecond resolution; normalize any
+    # datetime64 unit to the nanosecond ints AdjustedArrays store.
+    return datetimelike.astype('datetime64[ns]').astype(int64)
 
 
 cdef class Datetime64Adjustment(_Int64Adjustment):

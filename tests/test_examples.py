@@ -148,13 +148,27 @@ class TestsExamplesTests:
         columns = [
             column for column in examples._cols_to_check if column != "positions"
         ]
+        actual = actual_perf[columns]
+        expected = expected_perf[columns]
+        # pandas 3 infers text columns as ``str``; the stored frames hold them
+        # as object. Compare those columns in the dtype pandas now produces.
+        str_cols = {
+            col: actual[col].dtype
+            for col in columns
+            if actual[col].dtype != object
+            and pd.api.types.is_string_dtype(actual[col].dtype)
+        }
+        expected = expected.astype(str_cols)
         assert_equal(
-            actual_perf[columns],
-            expected_perf[columns],
+            actual,
+            expected,
             # There is a difference in the datetime columns in pandas
             # 0.16 and 0.17 because in 16 they are object and in 17 they are
             # datetime[ns, UTC]. We will just ignore the dtypes for now.
             # check_dtype=False,
+            # The stored expected frames have object column labels; pandas 3
+            # builds them with the ``str`` dtype.
+            check_column_type=False,
         )
         # Sort positions by SID before comparing
         assert_equal(

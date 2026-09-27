@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from cpython cimport bool
 
+from zipline.utils.pandas_utils import datetime_to_ns
+
 cdef np.int64_t _nanos_in_minute = 60000000000
 NANOS_IN_MINUTE = _nanos_in_minute
 
@@ -43,10 +45,10 @@ cdef class MinuteSimulationClock:
                  minute_emission=False):
         self.minute_emission = minute_emission
 
-        self.market_opens_nanos = market_opens.values.astype(np.int64)
-        self.market_closes_nanos = market_closes.values.astype(np.int64)
-        self.sessions_nanos = sessions.values.astype(np.int64)
-        self.bts_nanos = before_trading_start_minutes.values.astype(np.int64)
+        self.market_opens_nanos = datetime_to_ns(market_opens)
+        self.market_closes_nanos = datetime_to_ns(market_closes)
+        self.sessions_nanos = datetime_to_ns(sessions)
+        self.bts_nanos = datetime_to_ns(before_trading_start_minutes)
 
         self.minutes_by_session = self.calc_minutes_by_session()
 

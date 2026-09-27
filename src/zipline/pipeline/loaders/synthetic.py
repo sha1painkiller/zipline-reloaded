@@ -21,6 +21,7 @@ from zipline.utils.numpy_utils import (
     int64_dtype,
     object_dtype,
 )
+from zipline.utils.pandas_utils import datetime_to_ns
 
 
 UINT_32_MAX = np.iinfo(np.uint32).max
@@ -298,7 +299,7 @@ def make_bar_data(asset_info, calendar, holes=None):
                 frame.loc[dt, OHLC] = np.nan
                 frame.loc[dt, ["volume"]] = 0
 
-        frame["day"] = nanos_to_seconds(datetimes.asi8)
+        frame["day"] = nanos_to_seconds(datetime_to_ns(datetimes))
         frame["id"] = asset_id
         return frame
 

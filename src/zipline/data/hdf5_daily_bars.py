@@ -114,7 +114,7 @@ from zipline.data.bar_reader import (
 from zipline.data.session_bars import CurrencyAwareSessionBarReader
 from zipline.utils.memoize import lazyval
 from zipline.utils.numpy_utils import bytes_array_to_native_str_object_array
-from zipline.utils.pandas_utils import check_indexes_all_same
+from zipline.utils.pandas_utils import check_indexes_all_same, datetime_to_ns
 
 log = logging.getLogger("HDF5DailyBars")
 
@@ -367,7 +367,7 @@ class HDF5DailyBarWriter:
 
         # h5py does not support datetimes, so they need to be stored
         # as integers.
-        index_group.create_dataset(DAY, data=days.astype(np.int64))
+        index_group.create_dataset(DAY, data=datetime_to_ns(days))
 
     def _write_lifetimes_group(self, country_group, start_date_ixs, end_date_ixs):
         """Write /country/lifetimes"""

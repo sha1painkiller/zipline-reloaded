@@ -53,6 +53,7 @@ from zipline.errors import (
 from zipline.utils.functional import invert
 from zipline.utils.memoize import lazyval
 from zipline.utils.numpy_utils import as_column
+from zipline.utils.pandas_utils import datetime_to_ns
 from zipline.utils.preprocess import preprocess
 from zipline.utils.sqlite_utils import coerce_string_to_eng, group_into_chunks
 
@@ -1464,7 +1465,7 @@ class AssetFinder:
                 self._compute_asset_lifetimes(country_codes=country_codes)
             )
 
-        raw_dates = as_column(dates.asi8)
+        raw_dates = as_column(datetime_to_ns(dates))
         if include_start_date:
             mask = lifetimes.start <= raw_dates
         else:

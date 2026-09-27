@@ -638,7 +638,7 @@ class DownsampledPipelineTestCase(WithSeededRandomPipelineEngine, ZiplineTestCas
 
         expected_results = {
             "year": (
-                raw_term_results.groupby(pd.Grouper(freq="AS"))
+                raw_term_results.groupby(pd.Grouper(freq="YS"))
                 .first()
                 .reindex(compute_dates, method="ffill")
             ),

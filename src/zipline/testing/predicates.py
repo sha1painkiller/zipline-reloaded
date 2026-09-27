@@ -2,6 +2,7 @@ from collections import OrderedDict
 
 # from contextlib import contextmanager
 import datetime
+import inspect
 from functools import partial
 
 import numpy as np
@@ -20,7 +21,7 @@ from zipline.dispatch import dispatch
 from zipline.lib.adjustment import Adjustment
 from zipline.lib.labelarray import LabelArray
 from zipline.testing.core import ensure_doctest
-from zipline.utils.compat import getargspec, mappingproxy
+from zipline.utils.compat import mappingproxy
 from zipline.utils.formatting import s
 from zipline.utils.functional import dzip_exact, instance
 from zipline.utils.math_utils import tolerant_equals
@@ -121,7 +122,14 @@ def keywords(func):
         return keywords(func.__init__)
     elif isinstance(func, partial):
         return keywords(func.func)
-    return getargspec(func).args
+    # inspect.signature follows ``__wrapped__`` and includes keyword-only
+    # parameters; pandas 3 wraps its assert_*_equal helpers in decorators,
+    # which getfullargspec would report as just (*args, **kwargs).
+    return [
+        name
+        for name, param in inspect.signature(func).parameters.items()
+        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+    ]
 
 
 def filter_kwargs(f, kwargs):

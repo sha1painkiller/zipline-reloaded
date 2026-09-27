@@ -35,6 +35,7 @@ from zipline.assets.asset_db_schema import futures_contracts as futures_contract
 from zipline.assets.asset_db_schema import futures_root_symbols, metadata, version_info
 from zipline.errors import AssetDBVersionError
 from zipline.utils.compat import ExitStack
+from zipline.utils.pandas_utils import datetime_to_ns
 from zipline.utils.preprocess import preprocess
 from zipline.utils.range import from_tuple, intersecting_ranges
 from zipline.utils.sqlite_utils import coerce_string_to_eng
@@ -403,7 +404,7 @@ def _dt_to_epoch_ns(dt_series: pd.Series) -> pd.Index:
         index = index.tz_localize("UTC")
     else:
         index = index.tz_convert("UTC")
-    return index.view(np.int64)
+    return datetime_to_ns(index)
 
 
 def check_version_info(conn, version_table, expected_version: int):

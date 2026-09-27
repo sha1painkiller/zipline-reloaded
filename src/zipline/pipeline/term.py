@@ -711,6 +711,8 @@ class ComputableTerm(Term):
         return (
             result.unstack()
             .fillna(self.missing_value)
+            # pandas < 3 silently downcast object columns after fillna.
+            .infer_objects()
             .reindex(columns=assets, fill_value=self.missing_value)
             .values
         )

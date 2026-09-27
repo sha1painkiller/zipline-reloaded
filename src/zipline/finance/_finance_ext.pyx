@@ -102,12 +102,18 @@ cdef class PositionStats:
     @classmethod
     def new(cls):
         cdef PositionStats self = cls()
-        self.position_exposure_series = es = pd.Series(
-            np.array([], dtype='float64'),
-            index=np.array([], dtype='int64'),
+        # Keep our own writable buffers: under pandas' Copy-on-Write (the
+        # default from pandas 3), ``Series.values`` / ``Index.values`` are
+        # read-only views and cannot be filled in place.
+        self.underlying_value_array = self.position_exposure_array = np.array(
+            [], dtype='float64',
         )
-        self.underlying_value_array = self.position_exposure_array = es.values
-        self.underlying_index_array = es.index.values
+        self.underlying_index_array = np.array([], dtype='int64')
+        self.position_exposure_series = pd.Series(
+            self.underlying_value_array,
+            index=self.underlying_index_array,
+            copy=False,
+        )
         return self
 
 
@@ -158,36 +164,16 @@ cpdef calculate_position_tracker_stats(positions, PositionStats stats):
             npos,
             dtype='float64',
         )
-
-        stats.position_exposure_array = position_exposure
-        # create a new series to expose the arrays
-        stats.position_exposure_series = pd.Series(
-            position_exposure,
-            index=index,
-        )
     elif len(old_index) > npos:
         # we have more space than needed, slice off the extra but leave it
         # available
         index = old_index[:npos]
         position_exposure = old_position_exposure[:npos]
-
-        stats.position_exposure_array = position_exposure
-        # create a new series with the sliced arrays
-        stats.position_exposure_series = pd.Series(
-            position_exposure,
-            index=index,
-        )
     else:
         # we have exactly the right amount of space, no slicing or allocation
         # needed
         index = old_index
         position_exposure = old_position_exposure
-
-        stats.position_exposure_array = position_exposure
-        stats.position_exposure_series = pd.Series(
-            position_exposure,
-            index=index,
-        )
 
     cdef InnerPosition position
     cdef Py_ssize_t ix = 0
@@ -224,6 +210,16 @@ cpdef calculate_position_tracker_stats(positions, PositionStats stats):
             position_exposure[ix] = exposure
 
         ix += 1
+
+    # Expose the filled buffers. The Series is built after filling, over the
+    # same memory (copy=False), so it never has to be written through: pandas
+    # 3 hands out read-only views of a Series' data.
+    stats.position_exposure_array = position_exposure
+    stats.position_exposure_series = pd.Series(
+        position_exposure,
+        index=index,
+        copy=False,
+    )
 
     net_value = long_value + short_value
     gross_value = long_value - short_value

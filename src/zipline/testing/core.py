@@ -526,11 +526,9 @@ def create_daily_df_for_asset(trading_calendar, start_day, end_day, interval=1):
         # only keep every 'interval' rows
         for idx, _ in enumerate(days_arr):
             if (idx + 1) % interval != 0:
-                df["open"].iloc[idx] = 0
-                df["high"].iloc[idx] = 0
-                df["low"].iloc[idx] = 0
-                df["close"].iloc[idx] = 0
-                df["volume"].iloc[idx] = 0
+                # A single .iloc assignment: chained ``df[col].iloc[idx] = 0``
+                # never reaches df under pandas Copy-on-Write.
+                df.iloc[idx, :] = 0
 
     return df
 

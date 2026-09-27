@@ -417,6 +417,9 @@ class ContinuousFuturesTestCase(
         for i in range(20):
             df = base_df.copy()
             df += i * 10000
+            # Edit a writable copy: under pandas Copy-on-Write (default in
+            # pandas 3) writes through ``df.volume.values`` never reach df.
+            volume = df["volume"].to_numpy(copy=True)
             if i in sid_to_vol_stop_session:
                 vol_stop_session = sid_to_vol_stop_session[i]
                 m_open = tc.session_first_minute(vol_stop_session)
@@ -424,8 +427,8 @@ class ContinuousFuturesTestCase(
                 # Add a little bit of noise to roll. So that predicates that
                 # check for exactly 0 do not work, since there may be
                 # stragglers after a roll.
-                df.volume.values[loc] = 1000
-                df.volume.values[loc + 1 :] = 0
+                volume[loc] = 1000
+                volume[loc + 1 :] = 0
             j = i - 1
             if j in sid_to_vol_stop_session:
                 non_primary_end = sid_to_vol_stop_session[j]
@@ -434,13 +437,13 @@ class ContinuousFuturesTestCase(
                     loc = dts.get_loc(m_close)
                     # Add some volume before a roll, since a contract may be
                     # entered earlier than when it is the primary.
-                    df.volume.values[: loc + 1] = 10
+                    volume[: loc + 1] = 10
             if i == 15:  # No volume for MAH16
-                df.volume.values[:] = 0
+                volume[:] = 0
             if i == 17:
                 end_loc = dts.searchsorted(pd.Timestamp("2016-02-16 23:00:00+00:00"))
-                df.volume.values[:end_loc] = 10
-                df.volume.values[end_loc:] = 0
+                volume[:end_loc] = 10
+                volume[end_loc:] = 0
             if i == 18:
                 cross_loc_1 = dts.searchsorted(
                     pd.Timestamp("2016-02-09 23:01:00+00:00")
@@ -452,11 +455,11 @@ class ContinuousFuturesTestCase(
                     pd.Timestamp("2016-02-15 23:01:00+00:00")
                 )
                 end_loc = dts.searchsorted(pd.Timestamp("2016-03-16 23:01:00+00:00"))
-                df.volume.values[:cross_loc_1] = 5
-                df.volume.values[cross_loc_1:cross_loc_2] = 15
-                df.volume.values[cross_loc_2:cross_loc_3] = 5
-                df.volume.values[cross_loc_3:end_loc] = 15
-                df.volume.values[end_loc:] = 0
+                volume[:cross_loc_1] = 5
+                volume[cross_loc_1:cross_loc_2] = 15
+                volume[cross_loc_2:cross_loc_3] = 5
+                volume[cross_loc_3:end_loc] = 15
+                volume[end_loc:] = 0
             if i == 19:
                 early_cross_1 = dts.searchsorted(
                     pd.Timestamp("2016-03-01 23:01:00+00:00")
@@ -465,10 +468,11 @@ class ContinuousFuturesTestCase(
                     pd.Timestamp("2016-03-03 23:01:00+00:00")
                 )
                 end_loc = dts.searchsorted(pd.Timestamp("2016-04-19 23:01:00+00:00"))
-                df.volume.values[:early_cross_1] = 1
-                df.volume.values[early_cross_1:early_cross_2] = 20
-                df.volume.values[early_cross_2:end_loc] = 10
-                df.volume.values[end_loc:] = 0
+                volume[:early_cross_1] = 1
+                volume[early_cross_1:early_cross_2] = 20
+                volume[early_cross_2:end_loc] = 10
+                volume[end_loc:] = 0
+            df["volume"] = volume
             yield i, df
 
     def test_double_volume_switch(self):

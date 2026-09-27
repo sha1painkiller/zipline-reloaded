@@ -329,6 +329,10 @@ class SQLiteAdjustmentReader:
 
         result.rename_axis(None, inplace=True)
         result = result[sorted(dtypes)]  # ensure expected order of columns
+        if convert_dates:
+            # pandas 3 keeps the parsed unit (seconds); the documented dtype
+            # is datetime64[ns].
+            result = result.astype({col: datetime64ns_dtype for col in date_cols})
         return result
 
     def _df_dtypes(self, table_name, convert_dates):
@@ -501,7 +505,7 @@ class SQLiteAdjustmentWriter:
 
         date_ix = date_ix[mask]
         sids_ix = sids_ix[mask]
-        input_dates = dividends.ex_date.values[mask]
+        input_dates = dividends.ex_date.values[mask].astype(datetime64ns_dtype)
 
         # subtract one day to get the close on the day prior to the merger
         previous_close = close[date_ix - 1, sids_ix]
@@ -548,8 +552,11 @@ class SQLiteAdjustmentWriter:
             dividend_payouts = None
         else:
             dividend_payouts = dividends.copy()
-            # TODO: Check if that's the right place for this fix for pandas > 1.2.5
-            dividend_payouts.fillna(np.datetime64("NaT"), inplace=True)
+            # Missing dates (None/NaN) become NaT. Only the date columns: a
+            # frame-wide fillna(NaT) would turn a float column with NaNs into
+            # object under pandas 3.
+            for col in ("ex_date", "record_date", "declared_date", "pay_date"):
+                dividend_payouts[col] = pd.to_datetime(dividend_payouts[col])
             dividend_payouts["ex_date"] = (
                 dividend_payouts["ex_date"]
                 .values.astype("datetime64[s]")

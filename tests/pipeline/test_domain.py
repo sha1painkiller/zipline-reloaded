@@ -169,7 +169,9 @@ class MixedGenericsTestCase(zf.WithSeededRandomPipelineEngine, zf.ZiplineTestCas
             subset_terms = {t: base_terms[t] for t in subset}
             result = run(subset_terms).sort_index(axis=1)
             expected = base_result[list(subset)].sort_index(axis=1)
-            assert_equal(result, expected)
+            # For the empty subset, pandas 3 gives the sliced frame ``str``
+            # columns but the empty pipeline result object columns.
+            assert_equal(result, expected, check_column_type=False)
 
 
 class TestSpecialize:

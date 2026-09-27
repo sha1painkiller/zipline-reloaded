@@ -70,5 +70,5 @@ class H5WriterTestCase(zp_fixtures.WithTmpDir, zp_fixtures.ZiplineTestCase):
                     "2014-01-06",
                     "2014-01-07",
                 ]
-            ),
+            ).as_unit("ns"),
         )

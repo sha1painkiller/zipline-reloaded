@@ -246,7 +246,7 @@ class ConstantInputTestCase(
 
         # All results are the same, so just grab one column.
         column = results.unstack().iloc[:, 0].values
-        check_arrays(column, self.dates[:2].values)
+        check_arrays(column, self.dates[:2].as_unit("ns").values)
 
     def test_same_day_pipeline(self):
         factor = AssetID()
@@ -257,7 +257,7 @@ class ConstantInputTestCase(
         #  (i.e. start and end dates are the same) we should accurately get
         # data for the day prior.
         result = self.engine.run_pipeline(p, self.dates[1], self.dates[1])
-        assert result["f"][0] == 1.0
+        assert result["f"].iloc[0] == 1.0
 
     def test_screen(self):
         asset_ids = np.array(self.asset_ids)
@@ -798,6 +798,7 @@ class FrameInputTestCase(
             cls.start,
             cls.end,
             freq=cls.trading_calendar.day,
+            unit="ns",
         )
         cls.assets = cls.asset_finder.retrieve_all(cls.asset_ids)
         cls.domain = US_EQUITIES
@@ -976,6 +977,7 @@ class SyntheticBcolzTestCase(
             self.first_asset_start + self.trading_calendar.day,
             self.last_asset_end,
             freq=self.trading_calendar.day,
+            unit="ns",
         )
         dates_to_test = dates[window_length:]
 
@@ -1029,6 +1031,7 @@ class SyntheticBcolzTestCase(
             self.first_asset_start + self.trading_calendar.day,
             self.last_asset_end,
             freq=self.trading_calendar.day,
+            unit="ns",
         )
         dates_to_test = dates[window_length:]
 
@@ -1074,6 +1077,7 @@ class ParameterizedFactorTestCase(
             "2015-02-28",
             freq=day,
             tz="UTC",
+            unit="ns",
         )
         sids = cls.sids
 

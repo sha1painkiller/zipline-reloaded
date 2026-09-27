@@ -1247,19 +1247,19 @@ class TestBeforeTradingStart(zf.WithMakeAlgo, zf.ZiplineTestCase):
         algo = self.make_algo(script=algo_code)
         results = algo.run()
 
-        assert results.the_high1[0] == 392
-        assert results.the_price1[0] == 390
+        assert results.the_high1.iloc[0] == 392
+        assert results.the_price1.iloc[0] == 390
 
         # nan because asset2 only trades every 50 minutes
-        assert np.isnan(results.the_high2[0])
+        assert np.isnan(results.the_high2.iloc[0])
 
-        assert 350, results.the_price2[0]
+        assert 350, results.the_price2.iloc[0]
 
-        assert algo.history_values[0]["high"][0] == 392
-        assert algo.history_values[0]["price"][0] == 390
+        assert algo.history_values[0]["high"].iloc[0] == 392
+        assert algo.history_values[0]["price"].iloc[0] == 390
 
-        assert algo.history_values[0]["high"][1] == 352
-        assert algo.history_values[0]["price"][1] == 350
+        assert algo.history_values[0]["high"].iloc[1] == 352
+        assert algo.history_values[0]["price"].iloc[1] == 350
 
     def test_portfolio_bts(self):
         algo_code = dedent(
@@ -1613,7 +1613,7 @@ class TestAlgoScript(zf.WithMakeAlgo, zf.ZiplineTestCase):
         # the txn was for -1000 shares at 9.95, means -9.95k.  our capital_used
         # for that day was therefore 9.95k, but after the $100 commission,
         # it should be 9.85k.
-        assert results.capital_used[1] == 9850
+        assert results.capital_used.iloc[1] == 9850
         assert results["orders"].iloc[1][0]["commission"] == 100
 
     @parameterized.expand(
@@ -3620,7 +3620,7 @@ class TestFuturesAlgo(zf.WithMakeAlgo, zf.ZiplineTestCase):
         expected_price = (algo.order_price + 1) + expected_spread
 
         assert txn["price"] == expected_price
-        assert results["orders"][0][0]["commission"] == 0.0
+        assert results["orders"].iloc[0][0]["commission"] == 0.0
 
     def test_volume_contract_slippage(self):
         algo_code = self.algo_with_slippage(
@@ -3633,7 +3633,7 @@ class TestFuturesAlgo(zf.WithMakeAlgo, zf.ZiplineTestCase):
         results = algo.run()
 
         # There should be no commissions.
-        assert results["orders"][0][0]["commission"] == 0.0
+        assert results["orders"].iloc[0][0]["commission"] == 0.0
 
         # Flatten the list of transactions.
         all_txns = [
@@ -3799,7 +3799,7 @@ class TestOrderCancelation(zf.WithMakeAlgo, zf.ZiplineTestCase):
         for daily_positions in results.positions:
             assert len(daily_positions) == 1
             assert np.copysign(389, direction) == daily_positions[0]["amount"]
-            assert results.positions[0][0]["sid"] == 1
+            assert results.positions.iloc[0][0]["sid"] == 1
 
         # should be an order on day1, but no more orders afterwards
         np.testing.assert_array_equal([1, 0, 0], list(map(len, results.orders)))
@@ -3807,7 +3807,7 @@ class TestOrderCancelation(zf.WithMakeAlgo, zf.ZiplineTestCase):
         # should be 389 txns on day 1, but no more afterwards
         np.testing.assert_array_equal([389, 0, 0], list(map(len, results.transactions)))
 
-        the_order = results.orders[0][0]
+        the_order = results.orders.iloc[0][0]
 
         assert the_order["status"] == ORDER_STATUS.CANCELLED
         assert np.copysign(389, direction) == the_order["filled"]

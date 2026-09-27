@@ -247,9 +247,13 @@ class WithOneDayPipeline(WithEstimates):
             self.expected_out.event_date = self.expected_out.event_date.astype(
                 "datetime64[ns]"
             )
-        assert_frame_equal(
-            results.sort_index(axis=1), self.expected_out.sort_index(axis=1)
+        expected = self.expected_out.sort_index(axis=1)
+        # pandas 3 builds the expected dates in microseconds; pipeline output
+        # dates are nanoseconds.
+        expected.index = expected.index.set_levels(
+            expected.index.levels[0].as_unit("ns"), level=0
         )
+        assert_frame_equal(results.sort_index(axis=1), expected)
 
 
 class PreviousWithOneDayPipeline(WithOneDayPipeline, ZiplineTestCase):
@@ -633,7 +637,12 @@ class WithEstimatesTimeZero(WithEstimates):
                     axis=0,
                 )
                 sid_estimates.index = all_expected.index.copy()
-                assert_equal(all_expected[sid_estimates.columns], sid_estimates)
+                # pandas 3 no longer infers dtypes when concatenating frames
+                # that hold None/NaN, so compare in the loader's column dtypes.
+                all_expected = all_expected[sid_estimates.columns].astype(
+                    sid_estimates.dtypes
+                )
+                assert_equal(all_expected, sid_estimates)
 
 
 class NextEstimate(WithEstimatesTimeZero, ZiplineTestCase):
@@ -744,7 +753,9 @@ class WithEstimateMultipleQuarters(WithEstimates):
         ):
             expected_name = raw_name + suffix
             if col.dtype == datetime64ns_dtype:
-                expected[expected_name] = pd.to_datetime(expected[expected_name])
+                expected[expected_name] = pd.to_datetime(
+                    expected[expected_name]
+                ).astype(datetime64ns_dtype)
             else:
                 expected[expected_name] = expected[expected_name].astype(col.dtype)
         cls.fill_expected_out(expected)
@@ -833,30 +844,33 @@ class PreviousEstimateMultipleQuarters(WithEstimateMultipleQuarters, ZiplineTest
 
     @classmethod
     def fill_expected_out(cls, expected):
+        # Assign through expected.loc: chained ``expected[col].loc[...] = v``
+        # never reaches ``expected`` under pandas Copy-on-Write.
         # Fill columns for 1 Q out
         for raw_name in cls.columns.values():
-            expected[raw_name + "1"].loc[
-                pd.Timestamp(
-                    "2015-01-12",
-                ) : pd.Timestamp("2015-01-19")
+            expected.loc[
+                pd.Timestamp("2015-01-12") : pd.Timestamp("2015-01-19"),
+                raw_name + "1",
             ] = cls.events[raw_name].iloc[0]
-            expected[raw_name + "1"].loc[pd.Timestamp("2015-01-20") :] = cls.events[
+            expected.loc[pd.Timestamp("2015-01-20") :, raw_name + "1"] = cls.events[
                 raw_name
             ].iloc[1]
 
         # Fill columns for 2 Q out
         for col_name in ["estimate", "event_date"]:
-            expected[col_name + "2"].loc[pd.Timestamp("2015-01-20") :] = cls.events[
+            expected.loc[pd.Timestamp("2015-01-20") :, col_name + "2"] = cls.events[
                 col_name
             ].iloc[0]
-        expected[FISCAL_QUARTER_FIELD_NAME + "2"].loc[
-            pd.Timestamp("2015-01-12") : pd.Timestamp("2015-01-20")
+        expected.loc[
+            pd.Timestamp("2015-01-12") : pd.Timestamp("2015-01-20"),
+            FISCAL_QUARTER_FIELD_NAME + "2",
         ] = 4
-        expected[FISCAL_YEAR_FIELD_NAME + "2"].loc[
-            pd.Timestamp("2015-01-12") : pd.Timestamp("2015-01-20")
+        expected.loc[
+            pd.Timestamp("2015-01-12") : pd.Timestamp("2015-01-20"),
+            FISCAL_YEAR_FIELD_NAME + "2",
         ] = 2014
-        expected[FISCAL_QUARTER_FIELD_NAME + "2"].loc[pd.Timestamp("2015-01-20") :] = 1
-        expected[FISCAL_YEAR_FIELD_NAME + "2"].loc[pd.Timestamp("2015-01-20") :] = 2015
+        expected.loc[pd.Timestamp("2015-01-20") :, FISCAL_QUARTER_FIELD_NAME + "2"] = 1
+        expected.loc[pd.Timestamp("2015-01-20") :, FISCAL_YEAR_FIELD_NAME + "2"] = 2015
         return expected
 
 

@@ -100,6 +100,7 @@ import pandas as pd
 
 from zipline.utils.memoize import lazyval
 from zipline.utils.numpy_utils import bytes_array_to_native_str_object_array
+from zipline.utils.pandas_utils import datetime_to_ns
 
 from .base import FXRateReader, DEFAULT_FX_RATE
 from .utils import check_dts, is_sorted_ascending
@@ -291,7 +292,7 @@ class HDF5FXRateWriter:
         index_group = self._group.create_group(INDEX)
 
         self._log_writing(INDEX, DTS)
-        index_group.create_dataset(DTS, data=dts.astype("int64"))
+        index_group.create_dataset(DTS, data=datetime_to_ns(dts))
 
         self._log_writing(INDEX, CURRENCIES)
         index_group.create_dataset(CURRENCIES, data=currencies.astype("S3"))

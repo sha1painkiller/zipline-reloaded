@@ -397,13 +397,17 @@ class Ledger:
         self._immutable_portfolio = zp.Portfolio(start, capital_base)
         self._portfolio = zp.MutableView(self._immutable_portfolio)
 
+        # The array owns the storage and the series is a zero-copy view over
+        # it. Metrics can access the array directly in minute mode for
+        # performance reasons. All writes go through the array: under pandas
+        # Copy-on-Write (default from pandas 3) ``Series.values`` is a
+        # read-only view, so the storage can't be derived from the series.
+        self.daily_returns_array = np.full(len(trading_sessions), np.nan)
         self.daily_returns_series = pd.Series(
-            np.nan,
+            self.daily_returns_array,
             index=trading_sessions,
+            copy=False,
         )
-        # Get a view into the storage of the returns series. Metrics
-        # can access this directly in minute mode for performance reasons.
-        self.daily_returns_array = self.daily_returns_series.values
 
         self._previous_total_returns = 0
 
@@ -475,8 +479,9 @@ class Ledger:
             raise ValueError("Unknown daily returns array type")
 
     def end_of_session(self, session_ix):
-        # save the daily returns time-series
-        self.daily_returns_series.iloc[session_ix] = self.todays_returns
+        # save the daily returns time-series (written through the array so the
+        # series view stays in sync, see ``__init__``)
+        self.daily_returns_array[session_ix] = self.todays_returns
 
     def sync_last_sale_prices(self, dt, data_portal, handle_non_market_minutes=False):
         self.position_tracker.sync_last_sale_prices(

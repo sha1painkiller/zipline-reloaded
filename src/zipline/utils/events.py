@@ -25,6 +25,7 @@ from toolz import curry
 
 from zipline.utils.input_validation import preprocess
 from zipline.utils.memoize import lazyval
+from zipline.utils.pandas_utils import datetime_to_ns
 from zipline.utils.sentinel import sentinel
 
 from .context_tricks import nop_context
@@ -483,7 +484,7 @@ class TradingDayOfWeekRule(StatelessRule, metaclass=ABCMeta):
             # Group by ISO year (0) and week (1)
             .groupby(sessions.map(lambda x: x.isocalendar()[0:2]))
             .nth(self.td_delta)
-            .astype(np.int64)
+            .pipe(datetime_to_ns)
         )
 
 
@@ -529,7 +530,7 @@ class TradingDayOfMonthRule(StatelessRule, metaclass=ABCMeta):
             pd.Series(data=sessions)
             .groupby([sessions.year, sessions.month])
             .nth(self.td_delta)
-            .astype(np.int64)
+            .pipe(datetime_to_ns)
         )
 
 
@@ -593,7 +594,7 @@ class OncePerDay(StatefulRule):
 
             # record the timestamp for the next day, so that we can use it
             # to know if we've moved to the next day
-            self.next_date = dt + pd.Timedelta(1, unit="d")
+            self.next_date = dt + pd.Timedelta(1, unit="D")
 
         if not self.triggered and self.rule.should_trigger(dt):
             self.triggered = True
