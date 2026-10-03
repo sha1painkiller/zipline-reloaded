@@ -311,11 +311,12 @@ def quantopian_quandl_bundle(
     with tarfile.open("r", fileobj=data) as tar:
         if show_progress:
             log.info("Writing data to %s.", output_dir)
+        # commonpath, not a string-prefix test: "/data/out-evil/x" starts
+        # with "/data/out" but is outside it.
+        root = os.path.realpath(output_dir)
         for member in tar.getmembers():
-            member_path = os.path.join(output_dir, member.name)
-            if not os.path.realpath(member_path).startswith(
-                os.path.realpath(output_dir)
-            ):
+            member_path = os.path.realpath(os.path.join(output_dir, member.name))
+            if os.path.commonpath([root, member_path]) != root:
                 raise ValueError(
                     f"Tar member {member.name!r} would extract outside "
                     f"target directory"
