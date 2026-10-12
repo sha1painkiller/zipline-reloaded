@@ -188,7 +188,13 @@ class SimulationBlotter(Blotter):
         # orders in place.  The right thing to do here would be to make
         # self.open_orders no longer a defaultdict.  If we do that, then we
         # should just remove the orders once here and be done with the matter.
-        for order in orders[:]:
+        self._cancel_orders(orders[:], warn, relay_status)
+
+        assert not orders
+        del self.open_orders[asset]
+
+    def _cancel_orders(self, orders, warn, relay_status):
+        for order in orders:
             self.cancel(order.id, relay_status)
             if warn:
                 # Message appropriately depending on whether there's
@@ -231,15 +237,24 @@ class SimulationBlotter(Blotter):
                         )
                     )
 
-        assert not orders
-        del self.open_orders[asset]
-
     # End of day cancel for daily frequency
     def execute_daily_cancel_policy(self, event):
         if self.cancel_policy.should_cancel(event):
             warn = self.cancel_policy.warn_on_cancel
             for asset in copy(self.open_orders):
-                self.cancel_all_orders_for_asset(asset, warn, relay_status=True)
+                orders = self.open_orders[asset]
+                # In daily mode an order fills on the bar *after* the one it
+                # was placed in, so an order placed during this session has
+                # not had a chance to trade yet. Cancelling it now would mean
+                # no order could ever fill under EODCancel. Only cancel
+                # orders that have already been offered a bar.
+                self._cancel_orders(
+                    [o for o in orders if o.created < self.current_dt],
+                    warn,
+                    relay_status=True,
+                )
+                if not orders:
+                    del self.open_orders[asset]
 
     def execute_cancel_policy(self, event):
         if self.cancel_policy.should_cancel(event):

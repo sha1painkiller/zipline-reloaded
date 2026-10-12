@@ -3852,19 +3852,29 @@ class TestOrderCancelation(zf.WithMakeAlgo, zf.ZiplineTestCase):
             assert len(self._caplog.messages) == 0
 
     def test_eod_order_cancel_daily(self):
-        # EODCancel cancels unfilled orders at end of day in daily mode.
+        # In daily mode an order placed on day 0 first trades on day 1's bar.
+        # EODCancel must give it that bar, then cancel the unfilled remainder
+        # at the end of day 1, rather than cancelling it on day 0 before it
+        # could ever fill.
         algo = self.prep_algo("set_cancel_policy(cancel_policy.EODCancel())", "daily")
 
         results = algo.run()
 
-        # order placed on day 0, cancelled at EOD, relay reported on day 1
-        np.testing.assert_array_equal([1, 1, 0], list(map(len, results.orders)))
+        # placed on day 0, partially filled on day 1 and cancelled at its
+        # close; the cancellation is relayed in day 2's packet
+        np.testing.assert_array_equal([1, 1, 1], list(map(len, results.orders)))
 
-        # no transactions since order is cancelled before any fill
-        np.testing.assert_array_equal([0, 0, 0], list(map(len, results.transactions)))
+        # volume is 1 share per day, so exactly one share fills, on day 1,
+        # and nothing fills on day 2 because the order is gone
+        np.testing.assert_array_equal([0, 1, 0], list(map(len, results.transactions)))
+
+        the_order = results.orders.iloc[2][0]
+        assert the_order["status"] == ORDER_STATUS.CANCELLED
+        assert the_order["filled"] == 1
 
         with self._caplog.at_level(logging.WARNING):
             assert len(self._caplog.messages) == 1
+            assert "partially filled" in self._caplog.messages[0]
 
 
 class TestDailyEquityAutoClose(zf.WithMakeAlgo, zf.ZiplineTestCase):
