@@ -38,7 +38,7 @@ dependencies = [
     "numpy>=1.23.5; python_version<'3.12'",
     "numpy>=1.26.0; python_version>='3.12'",
     "numpy>=2.1; python_version>='3.13'",
-    "pandas >=2.0,<4.0",
+    "pandas >=2.2,<4.0",
     'alembic >=0.7.7',
     'bcolz-zipline >=1.2.6',
     'bottleneck >=1.0.0',
@@ -269,9 +269,9 @@ line-ending = "auto"
 legacy_tox_ini = """
 [tox]
 envlist =
-    py310-pandas{20,21,22,23}-numpy1
-    py311-pandas{20,21,22,23}-numpy1
-    py312-pandas{20,21,22,23}-numpy1
+    py310-pandas{22,23}-numpy1
+    py311-pandas{22,23}-numpy1
+    py312-pandas{22,23}-numpy1
     py310-pandas{222,23}-numpy2{0,1,2}
     py311-pandas{222,23}-numpy2{0,1,2}
     py312-pandas{222,23}-numpy2{0,1,2}
@@ -310,8 +310,6 @@ passenv = GITHUB_ACTIONS
 changedir = tmp
 extras = test
 deps =
-    pandas20: pandas>=2.0,<2.1
-    pandas21: pandas>=2.1,<2.2
     pandas22: pandas>=2.2,<2.3
     pandas222: pandas>=2.2.2,<2.3
     pandas23: pandas>=2.3,<2.4
@@ -335,14 +333,6 @@ setenv =
 commands = {[pytest_commands]py313_specific}
 
 # Disable coverage for ALL Python 3.11 environments due to IndexError bugs.
-[testenv:py311-pandas{15,20,21,22,222,23}-numpy{1,20,21,22}]
-commands = {[pytest_commands]without_cov}
-
-# Disable coverage for pandas 1.5 on any python version.
-[testenv:py{310,311,312,313}-pandas15-numpy{1,20,21,22}]
-commands = {[pytest_commands]without_cov}
-
-# Disable coverage for pandas 2.0 on any python version.
-[testenv:py{310,311,312,313}-pandas{15,20}-numpy{1,20,21,22}]
+[testenv:py311-pandas{22,222,23}-numpy{1,20,21,22}]
 commands = {[pytest_commands]without_cov}
 """
