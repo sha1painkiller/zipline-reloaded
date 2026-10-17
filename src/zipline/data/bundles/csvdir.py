@@ -133,26 +133,33 @@ def csvdir_bundle(
                 "'daily' and 'minute' directories " "not found in '%s'" % csvdir
             )
 
-    # Typed empty frames: pandas 3 no longer ignores empty/all-NA entries when
-    # concatenating, so untyped (object) seeds would make every column object.
+    # Per-symbol frames are collected in lists and concatenated once per
+    # timeframe; concatenating inside the symbol loop is quadratic.
+    # Typed empty seed frames: pandas 3 no longer ignores empty/all-NA entries
+    # when concatenating, so untyped (object) seeds would make every column
+    # object.
     divs_splits = {
-        "divs": pd.DataFrame(
-            {
-                "sid": pd.Series(dtype="int64"),
-                "amount": pd.Series(dtype="float64"),
-                "ex_date": pd.Series(dtype="datetime64[ns]"),
-                "record_date": pd.Series(dtype="datetime64[ns]"),
-                "declared_date": pd.Series(dtype="datetime64[ns]"),
-                "pay_date": pd.Series(dtype="datetime64[ns]"),
-            }
-        ),
-        "splits": pd.DataFrame(
-            {
-                "sid": pd.Series(dtype="int64"),
-                "ratio": pd.Series(dtype="float64"),
-                "effective_date": pd.Series(dtype="datetime64[ns]"),
-            }
-        ),
+        "divs": [
+            pd.DataFrame(
+                {
+                    "sid": pd.Series(dtype="int64"),
+                    "amount": pd.Series(dtype="float64"),
+                    "ex_date": pd.Series(dtype="datetime64[ns]"),
+                    "record_date": pd.Series(dtype="datetime64[ns]"),
+                    "declared_date": pd.Series(dtype="datetime64[ns]"),
+                    "pay_date": pd.Series(dtype="datetime64[ns]"),
+                }
+            )
+        ],
+        "splits": [
+            pd.DataFrame(
+                {
+                    "sid": pd.Series(dtype="int64"),
+                    "ratio": pd.Series(dtype="float64"),
+                    "effective_date": pd.Series(dtype="datetime64[ns]"),
+                }
+            )
+        ],
     }
     for tframe in tframes:
         ddir = os.path.join(csvdir, tframe)
@@ -188,11 +195,11 @@ def csvdir_bundle(
 
         asset_db_writer.write(equities=metadata)
 
-        divs_splits["divs"]["sid"] = divs_splits["divs"]["sid"].astype(int)
-        divs_splits["splits"]["sid"] = divs_splits["splits"]["sid"].astype(int)
-        adjustment_writer.write(
-            splits=divs_splits["splits"], dividends=divs_splits["divs"]
-        )
+        divs = pd.concat(divs_splits["divs"], ignore_index=True)
+        splits = pd.concat(divs_splits["splits"], ignore_index=True)
+        divs["sid"] = divs["sid"].astype(int)
+        splits["sid"] = splits["sid"].astype(int)
+        adjustment_writer.write(splits=splits, dividends=divs)
 
 
 def _pricing_iter(csvdir, symbols, metadata, divs_splits, show_progress):
@@ -233,13 +240,7 @@ def _pricing_iter(csvdir, symbols, metadata, divs_splits, show_progress):
                 )
                 split["ratio"] = tmp.tolist()
                 split["sid"] = sid
-
-                splits = divs_splits["splits"]
-                index = pd.Index(
-                    range(splits.shape[0], splits.shape[0] + split.shape[0])
-                )
-                split.set_index(index, inplace=True)
-                divs_splits["splits"] = pd.concat([splits, split], axis=0)
+                divs_splits["splits"].append(split)
 
             if "dividend" in dfr.columns:
                 # ex_date   amount  sid record_date declared_date pay_date
@@ -250,11 +251,7 @@ def _pricing_iter(csvdir, symbols, metadata, divs_splits, show_progress):
                 div["pay_date"] = pd.NaT
                 div["amount"] = tmp.tolist()
                 div["sid"] = sid
-
-                divs = divs_splits["divs"]
-                ind = pd.Index(range(divs.shape[0], divs.shape[0] + div.shape[0]))
-                div.set_index(ind, inplace=True)
-                divs_splits["divs"] = pd.concat([divs, div], axis=0)
+                divs_splits["divs"].append(div)
 
             yield sid, dfr
 

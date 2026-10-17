@@ -57,6 +57,21 @@ def merge_adjustments(into, other):
 class HistoryCompatibleUSEquityAdjustmentReader:
     def __init__(self, adjustment_reader):
         self._adjustments_reader = adjustment_reader
+        # (table_name, sid) -> rows. Adjustments are fixed for the life of the
+        # reader, and every rebuilt history window would otherwise re-query
+        # each table for each asset. DataPortal._get_adjustment_list caches
+        # the same rows the same way for spot-value adjustments.
+        self._adjustments_cache = {}
+
+    def _get_adjustments_for_sid(self, table_name, sid):
+        try:
+            return self._adjustments_cache[table_name, sid]
+        except KeyError:
+            adjustments = self._adjustments_reader.get_adjustments_for_sid(
+                table_name, sid
+            )
+            self._adjustments_cache[table_name, sid] = adjustments
+            return adjustments
 
     def load_pricing_adjustments(self, columns, dts, assets):
         """
@@ -110,7 +125,7 @@ class HistoryCompatibleUSEquityAdjustmentReader:
         end = dts[-1].normalize()
         adjs = {}
         if field != "volume":
-            mergers = self._adjustments_reader.get_adjustments_for_sid("mergers", sid)
+            mergers = self._get_adjustments_for_sid("mergers", sid)
             for m in mergers:
                 dt = m[0].tz_localize(dts.tzinfo)
                 if start < dt <= end:
@@ -121,7 +136,7 @@ class HistoryCompatibleUSEquityAdjustmentReader:
                         adjs[adj_loc].append(mult)
                     except KeyError:
                         adjs[adj_loc] = [mult]
-            divs = self._adjustments_reader.get_adjustments_for_sid("dividends", sid)
+            divs = self._get_adjustments_for_sid("dividends", sid)
             for d in divs:
                 dt = d[0].tz_localize(dts.tzinfo)
                 if start < dt <= end:
@@ -132,7 +147,7 @@ class HistoryCompatibleUSEquityAdjustmentReader:
                         adjs[adj_loc].append(mult)
                     except KeyError:
                         adjs[adj_loc] = [mult]
-        splits = self._adjustments_reader.get_adjustments_for_sid("splits", sid)
+        splits = self._get_adjustments_for_sid("splits", sid)
         for s in splits:
             dt = s[0].tz_localize(dts.tzinfo)
             if start < dt <= end:

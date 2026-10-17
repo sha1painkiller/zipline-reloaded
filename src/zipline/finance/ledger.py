@@ -471,12 +471,7 @@ class Ledger:
         # make daily_returns hold the partial returns, this saves many
         # metrics from doing a concat and copying all of the previous
         # returns
-        if isinstance(self.daily_returns_array, np.ndarray):
-            self.daily_returns_array[session_ix] = self.todays_returns
-        elif isinstance(self.daily_returns_array, pd.Series):
-            self.daily_returns_array.iloc[session_ix] = self.todays_returns
-        else:
-            raise ValueError("Unknown daily returns array type")
+        self.daily_returns_array[session_ix] = self.todays_returns
 
     def end_of_session(self, session_ix):
         # save the daily returns time-series (written through the array so the

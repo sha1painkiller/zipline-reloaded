@@ -92,12 +92,16 @@ cdef class PositionStats:
     cdef readonly np.uint64_t longs_count
     cdef readonly np.uint64_t shorts_count
     cdef readonly object position_exposure_array
-    cdef readonly object position_exposure_series
 
     # These are the same memory exposed through ``position_exposure_array``
     # and ``position_exposure_series``. These are hidden from Python.
     cdef object underlying_value_array
     cdef object underlying_index_array
+
+    # The current (possibly sliced) view of ``underlying_index_array``, and the
+    # Series over it, built on first access to ``position_exposure_series``.
+    cdef object position_exposure_index
+    cdef object _position_exposure_series
 
     @classmethod
     def new(cls):
@@ -108,13 +112,24 @@ cdef class PositionStats:
         self.underlying_value_array = self.position_exposure_array = np.array(
             [], dtype='float64',
         )
-        self.underlying_index_array = np.array([], dtype='int64')
-        self.position_exposure_series = pd.Series(
-            self.underlying_value_array,
-            index=self.underlying_index_array,
-            copy=False,
+        self.underlying_index_array = self.position_exposure_index = np.array(
+            [], dtype='int64',
         )
+        self._position_exposure_series = None
         return self
+
+    @property
+    def position_exposure_series(self):
+        # Built lazily: the stats are recomputed on every bar with positions,
+        # and nothing in zipline reads the Series, so building one (plus its
+        # Index) on every update was pure overhead.
+        if self._position_exposure_series is None:
+            self._position_exposure_series = pd.Series(
+                self.position_exposure_array,
+                index=self.position_exposure_index,
+                copy=False,
+            )
+        return self._position_exposure_series
 
 
 cpdef calculate_position_tracker_stats(positions, PositionStats stats):
@@ -211,15 +226,12 @@ cpdef calculate_position_tracker_stats(positions, PositionStats stats):
 
         ix += 1
 
-    # Expose the filled buffers. The Series is built after filling, over the
-    # same memory (copy=False), so it never has to be written through: pandas
-    # 3 hands out read-only views of a Series' data.
+    # Expose the filled buffers. The Series is built from them on demand,
+    # after filling, over the same memory (copy=False), so it never has to be
+    # written through: pandas 3 hands out read-only views of a Series' data.
     stats.position_exposure_array = position_exposure
-    stats.position_exposure_series = pd.Series(
-        position_exposure,
-        index=index,
-        copy=False,
-    )
+    stats.position_exposure_index = index
+    stats._position_exposure_series = None
 
     net_value = long_value + short_value
     gross_value = long_value - short_value

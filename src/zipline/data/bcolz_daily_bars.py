@@ -584,29 +584,28 @@ class BcolzDailyBarReader(CurrencyAwareSessionBarReader):
     def get_last_traded_dt(self, asset, day):
         volumes = self._spot_col("volume")
 
-        search_day = day
-
-        while True:
-            try:
-                ix = self.sid_day_index(asset, search_day)
-            except NoDataBeforeDate:
-                return pd.NaT
-            except NoDataAfterDate:
-                prev_day_ix = self.sessions.get_loc(search_day) - 1
-                if prev_day_ix > -1:
-                    search_day = self.sessions[prev_day_ix]
-                else:
-                    return pd.NaT
-                continue
-            except NoDataOnDate:
-                return pd.NaT
+        try:
+            ix = self.sid_day_index(asset, day)
+        except NoDataBeforeDate:
+            return pd.NaT
+        except NoDataAfterDate:
+            # After the asset's end date: search back from its last row.
+            ix = self._last_rows[asset]
+        except NoDataOnDate:
+            return pd.NaT
+        else:
             if volumes[ix] != 0:
-                return search_day
-            prev_day_ix = self.sessions.get_loc(search_day) - 1
-            if prev_day_ix > -1:
-                search_day = self.sessions[prev_day_ix]
-            else:
-                return pd.NaT
+                return day
+
+        # Find the last nonzero-volume row in one read rather than walking
+        # back a session at a time (~1,250 steps for an asset delisted five
+        # years before ``day``). Row ``first_row + k`` is session
+        # ``calendar_offset + k``.
+        first_row = self._first_rows[asset]
+        traded = np.flatnonzero(volumes[first_row : ix + 1])
+        if len(traded) == 0:
+            return pd.NaT
+        return self.sessions[self._calendar_offsets[asset] + traded[-1]]
 
     def sid_day_index(self, sid, day):
         """
