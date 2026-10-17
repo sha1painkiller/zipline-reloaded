@@ -758,7 +758,10 @@ class DataPortal:
                             )
                     else:
                         found_dt -= self.trading_calendar.day
-                        if found_dt < self._first_trading_day:
+                        if (
+                            self._first_trading_day is not None
+                            and found_dt < self._first_trading_day
+                        ):
                             return np.nan
                 except NoDataOnDate:
                     return np.nan

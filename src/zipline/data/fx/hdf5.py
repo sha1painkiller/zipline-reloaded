@@ -328,4 +328,4 @@ class HDF5FXRateWriter:
             )
 
     def _log_writing(self, *path):
-        log.debug("Writing {}", "/".join(path))
+        log.debug("Writing %s", "/".join(path))

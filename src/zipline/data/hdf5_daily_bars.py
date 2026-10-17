@@ -415,10 +415,10 @@ class HDF5DailyBarWriter:
 
             dataset.attrs[SCALING_FACTOR] = scaling_factors[field]
 
-            log.debug("Writing dataset {} to file {}", dataset.name, self._filename)
+            log.debug("Writing dataset %s to file %s", dataset.name, self._filename)
 
     def _log_writing_dataset(self, dataset):
-        log.debug("Writing {} to file {}", dataset.name, self._filename)
+        log.debug("Writing %s to file %s", dataset.name, self._filename)
 
 
 def compute_asset_lifetimes(frames):

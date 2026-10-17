@@ -311,15 +311,28 @@ def quantopian_quandl_bundle(
     with tarfile.open("r", fileobj=data) as tar:
         if show_progress:
             log.info("Writing data to %s.", output_dir)
-        # commonpath, not a string-prefix test: "/data/out-evil/x" starts
-        # with "/data/out" but is outside it.
+        if hasattr(tarfile, "data_filter"):
+            # Python 3.12+, and the 3.10.12+/3.11.4+ security backports.
+            # Rejects absolute paths, ".." escapes, links pointing outside
+            # output_dir and device files, checked as each member is written.
+            tar.extractall(output_dir, filter="data")
+            return
+
+        # Fallback: paths are checked before anything is written, so a
+        # symlink extracted earlier could redirect a later member out of
+        # output_dir. Reject links outright. commonpath, not a string-prefix
+        # test: "/data/out-evil/x" starts with "/data/out" but is outside it.
         root = os.path.realpath(output_dir)
         for member in tar.getmembers():
             member_path = os.path.realpath(os.path.join(output_dir, member.name))
-            if os.path.commonpath([root, member_path]) != root:
+            if (
+                member.issym()
+                or member.islnk()
+                or os.path.commonpath([root, member_path]) != root
+            ):
                 raise ValueError(
-                    f"Tar member {member.name!r} would extract outside "
-                    f"target directory"
+                    f"Tar member {member.name!r} is a link or would extract "
+                    f"outside target directory"
                 )
         tar.extractall(output_dir)
 

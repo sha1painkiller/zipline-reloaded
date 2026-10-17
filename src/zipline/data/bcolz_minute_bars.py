@@ -147,8 +147,8 @@ def convert_cols(cols, scale_factor, sid, invalid_data_behavior):
 
             if invalid_data_behavior == "warn":
                 logger.warning(
-                    "Values for sid={}, col={} contain some too large for "
-                    "uint32 (max={}), filtering them out",
+                    "Values for sid=%s, col=%s contain some too large for "
+                    "uint32 (max=%s), filtering them out",
                     sid,
                     col_name,
                     max_val,
@@ -838,10 +838,10 @@ class BcolzMinuteBarWriter:
             except IOError:
                 continue
             if table.len <= truncate_slice_end:
-                logger.info("{0} not past truncate date={1}.", file_name, date)
+                logger.info("%s not past truncate date=%s.", file_name, date)
                 continue
 
-            logger.info("Truncating {0} at end_date={1}", file_name, date.date())
+            logger.info("Truncating %s at end_date=%s", file_name, date.date())
 
             table.resize(truncate_slice_end)
 

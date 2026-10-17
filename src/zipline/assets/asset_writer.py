@@ -875,9 +875,9 @@ class AssetDBWriter:
             chunksize=chunk_size,
         )
 
-    def _all_tables_present(self, txn):
+    def _any_tables_present(self, txn):
         """
-        Checks if all tables are present in the current assets database.
+        Checks if any tables are present in the current assets database.
 
         Parameters
         ----------
@@ -887,9 +887,12 @@ class AssetDBWriter:
         Returns
         -------
         has_tables : bool
-            True if all tables are present, otherwise False.
+            True if any tables are present, otherwise False.
         """
-        return all(
+        # any(), not all(): a db from an older ASSET_DB_VERSION can lack a
+        # newer table, and must still go through check_version_info below
+        # (raising AssetDBVersionError) rather than be treated as new.
+        return any(
             sa.inspect(txn).has_table(table_name)
             for table_name in asset_db_table_names
         )
@@ -912,7 +915,7 @@ class AssetDBWriter:
             if txn is None:
                 txn = stack.enter_context(self.engine.begin())
 
-            tables_already_exist = self._all_tables_present(txn)
+            tables_already_exist = self._any_tables_present(txn)
 
             # Create the SQL tables if they do not already exist.
             metadata.create_all(txn, checkfirst=True)
