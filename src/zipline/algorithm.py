@@ -520,8 +520,7 @@ class TradingAlgorithm:
                 execution_opens = market_closes
 
         before_trading_start_minutes = self._before_trading_start_minutes(
-            execution_opens,
-            execution_closes,
+            execution_opens
         )
 
         return MinuteSimulationClock(
@@ -532,18 +531,22 @@ class TradingAlgorithm:
             minute_emission=minutely_emission,
         )
 
-    def _before_trading_start_minutes(self, execution_opens, execution_closes):
+    def _before_trading_start_minutes(self, execution_opens):
         """The minute on which to fire ``before_trading_start`` each session.
 
         Defaults to 08:45 US/Eastern, which is 45 minutes before the US
         equity open. That anchor is meaningless on a calendar that trades
-        outside US hours: for a session that has already closed by 08:45
+        outside US hours. For a session that has already closed by 08:45
         US/Eastern, the minute lands after the close, and
         ``MinuteSimulationClock`` drops any ``before_trading_start`` minute
-        that falls past the end of its session. The hook - and with it every
-        pipeline attached to the algorithm - would simply never run, without
-        raising. Those sessions fall back to 45 minutes before their own
-        open.
+        that falls past the end of its session: the hook - and with it every
+        pipeline attached to the algorithm - would never run, without
+        raising. For a session that is open at 08:45 US/Eastern (London, for
+        example), the clock emits every bar before that minute first, so
+        ``handle_data`` and scheduled functions would run for hours against
+        the previous session's pipeline output. Any session whose first
+        execution minute is not after the default falls back to 45 minutes
+        before that minute.
         """
         default = days_at_time(
             self.sim_params.sessions,
@@ -554,12 +557,13 @@ class TradingAlgorithm:
 
         # `execution_opens` is the last minute of the session in daily mode,
         # so this lands before the session's only bar either way.
-        fallback = pd.DatetimeIndex(execution_opens) - pd.Timedelta(minutes=45)
-        after_close = default > pd.DatetimeIndex(execution_closes)
-        if not after_close.any():
+        execution_opens = pd.DatetimeIndex(execution_opens)
+        fallback = execution_opens - pd.Timedelta(minutes=45)
+        not_before_open = default >= execution_opens
+        if not not_before_open.any():
             return default
 
-        return default.where(~after_close, fallback)
+        return default.where(~not_before_open, fallback)
 
     def _create_benchmark_source(self):
         if self.benchmark_sid is not None:
@@ -1336,6 +1340,16 @@ class TradingAlgorithm:
             if stop_price is not None:
                 raise UnsupportedOrderParameters(
                     msg="Passing both stop_price and style is not supported."
+                )
+
+        # order() once read a price of 0 as "no price" and placed a market
+        # order. It now builds the limit/stop order at 0 instead, where a buy
+        # limit never fills (and stays open under NeverCancel) and a sell
+        # limit fills at any price, so refuse it rather than change silently.
+        for label, price in (("limit_price", limit_price), ("stop_price", stop_price)):
+            if price is not None and price == 0:
+                raise UnsupportedOrderParameters(
+                    msg=f"{label}=0 is not supported; pass None for a market order."
                 )
 
         for control in self.trading_controls:

@@ -1,7 +1,7 @@
 """
 Regression tests for simulation-correctness fixes that change backtest results
-without raising when they regress: split processing, history adjustments and
-slippage fill sizes.
+without raising when they regress: split processing, history adjustments,
+slippage fill sizes, before_trading_start timing and zero order prices.
 """
 
 import sqlite3
@@ -10,11 +10,14 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from zipline.algorithm import TradingAlgorithm
 from zipline.assets import Equity, ExchangeInfo
 from zipline.data.data_portal import DataPortal
 from zipline.data.history_loader import merge_adjustments
+from zipline.errors import UnsupportedOrderParameters
 from zipline.finance.order import Order
 from zipline.finance.slippage import FixedSlippage, NoSlippage
+from zipline.gens.sim_engine import BAR, BEFORE_TRADING_START_BAR, SESSION_START
 from zipline.lib.adjustment import Float64Multiply
 from zipline.utils.calendar_utils import get_calendar
 
@@ -176,3 +179,81 @@ class TestSlippageFillsOnlyTheOpenAmount:
         )
 
         assert amount == 60
+
+
+class TestBeforeTradingStartPrecedesTheSession:
+    """``before_trading_start`` - and every pipeline with it - must run before
+    a session's first bar. The 08:45 US/Eastern default lands after the close
+    on Asian calendars, where the clock dropped the hook, and mid-session on
+    European ones, where the clock ran hours of bars against the previous
+    session's pipeline output first.
+    """
+
+    def _events_by_session(self, calendar_name, data_frequency):
+        calendar = get_calendar(calendar_name)
+        sessions = calendar.sessions_in_range("2024-03-04", "2024-03-08")
+        algo = SimpleNamespace(
+            trading_calendar=calendar,
+            sim_params=SimpleNamespace(
+                sessions=sessions,
+                data_frequency=data_frequency,
+                emission_rate="daily",
+            ),
+        )
+        algo._before_trading_start_minutes = lambda *args: (
+            TradingAlgorithm._before_trading_start_minutes(algo, *args)
+        )
+
+        by_session = []
+        for dt, action in TradingAlgorithm._create_clock(algo):
+            if action == SESSION_START:
+                by_session.append([])
+            elif action in (BAR, BEFORE_TRADING_START_BAR):
+                by_session[-1].append((dt, action))
+        return by_session
+
+    @pytest.mark.parametrize("data_frequency", ["minute", "daily"])
+    @pytest.mark.parametrize("calendar_name", ["XNYS", "XLON", "XTKS"])
+    def test_fires_once_before_the_first_bar(self, calendar_name, data_frequency):
+        by_session = self._events_by_session(calendar_name, data_frequency)
+
+        assert len(by_session) == 5
+        for events in by_session:
+            actions = [action for _, action in events]
+            assert actions.count(BEFORE_TRADING_START_BAR) == 1
+            assert actions[0] == BEFORE_TRADING_START_BAR
+
+    def test_us_equities_keep_0845_eastern(self):
+        for events in self._events_by_session("XNYS", "minute"):
+            bts = events[0][0].tz_convert("US/Eastern")
+            assert (bts.hour, bts.minute) == (8, 45)
+
+
+class TestZeroOrderPrices:
+    """order() once read a price of 0 as "no price" and placed a market order.
+    It now builds the order at that price, where a buy limit at 0 never fills
+    and a sell limit at 0 fills at any price, so 0 must be refused.
+    """
+
+    @staticmethod
+    def _validate(limit_price=None, stop_price=None):
+        algo = SimpleNamespace(initialized=True, trading_controls=[])
+        TradingAlgorithm.validate_order_params(
+            algo, None, 100, limit_price, stop_price, None
+        )
+
+    @pytest.mark.parametrize(
+        "prices",
+        [
+            {"limit_price": 0},
+            {"stop_price": 0.0},
+            {"limit_price": 0, "stop_price": 5.0},
+        ],
+    )
+    def test_zero_price_is_refused(self, prices):
+        with pytest.raises(UnsupportedOrderParameters, match="pass None"):
+            self._validate(**prices)
+
+    def test_none_and_positive_prices_are_accepted(self):
+        self._validate()
+        self._validate(limit_price=0.01, stop_price=5.0)
