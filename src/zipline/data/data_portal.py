@@ -53,6 +53,7 @@ from zipline.data.history_loader import (
 )
 from zipline.data.bar_reader import NoDataOnDate
 
+from zipline.utils.calendar_utils import naive_session_label, session_before
 from zipline.utils.memoize import remember_last
 from zipline.errors import HistoryWindowStartsBeforeData
 
@@ -1110,16 +1111,7 @@ class DataPortal:
         This is the session preceding ``dt``, so that ``get_splits`` covers
         everything that became effective since the last time it was asked.
         """
-        sessions = self.trading_calendar.sessions
-        naive_dt = dt.tz_localize(None) if dt.tzinfo is not None else dt
-
-        loc = sessions.searchsorted(naive_dt)
-        if loc == 0:
-            # No previous session to reach back to; fall back to matching
-            # `dt` alone.
-            return naive_dt - pd.Timedelta(days=1)
-
-        return sessions[loc - 1]
+        return session_before(self.trading_calendar.sessions, dt)
 
     def get_splits(self, assets, dt):
         """Returns any splits for the given sids that became effective in the
@@ -1152,9 +1144,12 @@ class DataPortal:
             return []
 
         # convert dt to # of seconds since epoch, because that's what we use
-        # in the adjustments db
-        seconds = int(dt.value / 1e9)
-        lower_bound = int(self._splits_lower_bound(dt).value / 1e9)
+        # in the adjustments db. Both bounds come from dt's session label:
+        # dt.value is its UTC instant, which for an aware non-UTC dt is hours
+        # away from the label the lower bound is computed from.
+        label = naive_session_label(dt)
+        seconds = int(label.value / 1e9)
+        lower_bound = int(self._splits_lower_bound(label).value / 1e9)
 
         splits = self._adjustment_reader.conn.execute(
             "SELECT sid, ratio FROM SPLITS "

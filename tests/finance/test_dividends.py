@@ -22,13 +22,19 @@ would ever equal, and never paid. The position was still marked down when
 the price went ex, so the portfolio lost the dividend outright.
 """
 
+import sqlite3
 from collections import namedtuple
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
 from zipline.assets import Equity, ExchangeInfo
-from zipline.finance.ledger import PositionTracker
+from zipline.data.adjustments import SQLiteAdjustmentReader
+from zipline.finance.ledger import Ledger, PositionTracker
+from zipline.finance.metrics import load as load_metrics_set
+from zipline.finance.metrics.tracker import MetricsTracker
+from zipline.utils.calendar_utils import get_calendar, session_before
 
 Dividend = namedtuple("Dividend", ["asset", "amount", "pay_date"])
 StockDividend = namedtuple(
@@ -202,3 +208,164 @@ def test_missing_pay_date_without_an_ex_date_is_reported(caplog):
 
     assert total == 0.0
     assert "will never be made" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "pay_date, session",
+    [
+        pytest.param(
+            pd.Timestamp("2015-06-03", tz="UTC"),
+            pd.Timestamp("2015-06-03"),
+            id="aware_pay_date_naive_session",
+        ),
+        pytest.param(
+            pd.Timestamp("2015-06-03"),
+            pd.Timestamp("2015-06-03", tz="UTC"),
+            id="naive_pay_date_aware_session",
+        ),
+    ],
+)
+def test_naive_and_aware_dates_are_compared(pay_date, session):
+    """The adjustments db hands back UTC-aware pay dates; a caller may pass
+    naive sessions. Comparing the two raised TypeError, which used to drop
+    the payment and log the same warning every session after."""
+    asset = make_asset(1)
+    tracker = make_tracker(asset)
+    tracker.earn_dividends(
+        [Dividend(asset, amount=AMOUNT_PER_SHARE, pay_date=pay_date)],
+        [],
+        ex_date=EX_DATE,
+    )
+
+    assert tracker.pay_dividends(session - pd.Timedelta(days=1)) == 0.0
+    assert tracker.pay_dividends(session) == EXPECTED_CASH
+    assert not tracker._unpaid_dividends
+
+
+class TestExDateWindow:
+    """A dividend must be earned exactly once, on the first session at or
+    after its ex_date, even when the ex_date is not a session. Prices are
+    adjusted from that session either way, so matching ex_date to the
+    session exactly lost the cash while still marking the position down.
+    """
+
+    SID = 1
+    CALENDAR = get_calendar("XNYS")
+
+    def _reader(self, ex_date):
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE dividend_payouts (sid INTEGER, ex_date INTEGER,"
+            " declared_date INTEGER, record_date INTEGER, pay_date INTEGER,"
+            " amount REAL)"
+        )
+        conn.execute(
+            "CREATE TABLE stock_dividend_payouts (sid INTEGER, ex_date INTEGER,"
+            " declared_date INTEGER, record_date INTEGER, pay_date INTEGER,"
+            " payment_sid INTEGER, ratio REAL)"
+        )
+        seconds = int(pd.Timestamp(ex_date).value // 10**9)
+        conn.execute(
+            "INSERT INTO dividend_payouts VALUES (?, ?, NULL, NULL, ?, ?)",
+            (self.SID, seconds, seconds, AMOUNT_PER_SHARE),
+        )
+        conn.execute(
+            "INSERT INTO stock_dividend_payouts VALUES (?, ?, NULL, NULL, ?, ?, ?)",
+            (self.SID, seconds, seconds, 2, 0.5),
+        )
+        return SQLiteAdjustmentReader(conn)
+
+    @staticmethod
+    def _finder():
+        return SimpleNamespace(retrieve_asset=make_asset)
+
+    def _sessions_earning(self, reader, method):
+        sessions = self.CALENDAR.sessions_in_range("2024-01-02", "2024-04-30")
+        earned = []
+        for session in sessions:
+            aware = session.tz_localize("UTC")
+            found = getattr(reader, method)(
+                {self.SID},
+                aware,
+                self._finder(),
+                session_before(self.CALENDAR.sessions, aware),
+            )
+            earned.extend([session] * len(found))
+        return earned
+
+    @pytest.mark.parametrize(
+        "method", ["get_dividends_with_ex_date", "get_stock_dividends_with_ex_date"]
+    )
+    @pytest.mark.parametrize(
+        "ex_date, expected_session",
+        [
+            pytest.param("2024-01-10", "2024-01-10", id="on_session"),
+            pytest.param("2024-01-13", "2024-01-16", id="weekend_and_holiday"),
+            pytest.param("2024-03-29", "2024-04-01", id="exchange_holiday"),
+        ],
+    )
+    def test_earned_once_on_first_session_at_or_after(
+        self, method, ex_date, expected_session
+    ):
+        earned = self._sessions_earning(self._reader(ex_date), method)
+
+        assert earned == [pd.Timestamp(expected_session)]
+
+    def test_without_previous_session_only_exact_ex_date_matches(self):
+        reader = self._reader("2024-01-13")
+        finder = self._finder()
+
+        for day in ("2024-01-12", "2024-01-13", "2024-01-16"):
+            found = reader.get_dividends_with_ex_date(
+                {self.SID}, pd.Timestamp(day, tz="UTC"), finder
+            )
+            assert len(found) == (day == "2024-01-13"), day
+
+    def test_ledger_earns_weekend_ex_date_and_pays_it(self):
+        reader = self._reader("2024-01-13")
+        asset = make_asset(self.SID)
+        ledger = Ledger(
+            self.CALENDAR.sessions_in_range("2024-01-02", "2024-01-31"),
+            capital_base=100_000.0,
+            data_frequency="daily",
+        )
+        ledger.position_tracker.update_position(
+            asset, amount=SHARES, last_sale_price=100.0
+        )
+        cash_before = ledger.portfolio.cash
+
+        for session in ("2024-01-12", "2024-01-16"):
+            ledger.process_dividends(
+                pd.Timestamp(session, tz="UTC"),
+                self._finder(),
+                reader,
+                previous_session=session_before(
+                    self.CALENDAR.sessions, pd.Timestamp(session)
+                ),
+            )
+
+        assert ledger.portfolio.cash - cash_before == EXPECTED_CASH
+
+    def test_metrics_tracker_passes_the_previous_session(self):
+        reader = self._reader("2024-01-13")
+        asset = make_asset(self.SID)
+        tracker = MetricsTracker(
+            trading_calendar=self.CALENDAR,
+            first_session=pd.Timestamp("2024-01-02"),
+            last_session=pd.Timestamp("2024-01-31"),
+            capital_base=100_000.0,
+            emission_rate="daily",
+            data_frequency="daily",
+            asset_finder=self._finder(),
+            metrics=load_metrics_set("none"),
+        )
+        ledger = tracker._ledger
+        ledger.position_tracker.update_position(
+            asset, amount=SHARES, last_sale_price=100.0
+        )
+        cash_before = ledger.portfolio.cash
+        data_portal = SimpleNamespace(adjustment_reader=reader)
+
+        tracker.handle_market_open(pd.Timestamp("2024-01-16", tz="UTC"), data_portal)
+
+        assert ledger.portfolio.cash - cash_before == EXPECTED_CASH

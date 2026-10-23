@@ -87,6 +87,34 @@ class TestGetSplitsWindow:
 
         assert DataPortal.get_splits(portal, {2}, pd.Timestamp("2024-01-10")) == []
 
+    @pytest.mark.parametrize("tz", ["UTC", "US/Eastern", "Asia/Tokyo"])
+    @pytest.mark.parametrize(
+        "effective_date, expected_session",
+        [
+            pytest.param("2024-01-10", "2024-01-10", id="on_session"),
+            pytest.param("2024-01-13", "2024-01-16", id="weekend_and_holiday"),
+        ],
+    )
+    def test_aware_session_label_reports_the_split_once(
+        self, tz, effective_date, expected_session
+    ):
+        """An aware ``dt`` names the session of its own wall-clock date. The
+        upper bound used to come from its UTC instant while the lower bound
+        came from that date, so east of UTC a split effective on a session
+        fell outside every window and was never reported."""
+        portal = self._portal(effective_date)
+        sessions = portal.trading_calendar.sessions_in_range(
+            "2024-01-02", "2024-02-29"
+        )
+
+        reported = [
+            session
+            for session in sessions
+            if DataPortal.get_splits(portal, {self.SID}, session.tz_localize(tz))
+        ]
+
+        assert reported == [pd.Timestamp(expected_session)]
+
 
 class TestMergeAdjustments:
     """Assets routinely share an ex-date. Two assets' adjustments landing on

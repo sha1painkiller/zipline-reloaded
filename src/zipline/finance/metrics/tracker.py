@@ -15,6 +15,7 @@
 import logging
 
 from ..ledger import Ledger
+from zipline.utils.calendar_utils import session_before
 from zipline.utils.exploding_object import NamedExplodingObject
 
 
@@ -267,6 +268,9 @@ class MetricsTracker:
                 session_label,
                 self._asset_finder,
                 adjustment_reader,
+                previous_session=session_before(
+                    self._trading_calendar.sessions, session_label
+                ),
             )
 
         self._current_session = session_label

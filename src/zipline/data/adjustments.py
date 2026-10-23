@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from numpy import integer as any_integer
 
+from zipline.utils.calendar_utils import naive_session_label
 from zipline.utils.functional import keysorted
 from zipline.utils.input_validation import preprocess
 from zipline.utils.numpy_utils import (
@@ -28,14 +29,14 @@ SQLITE_ADJUSTMENT_TABLENAMES = frozenset(["splits", "dividends", "mergers"])
 
 UNPAID_QUERY_TEMPLATE = """
 SELECT sid, amount, pay_date from dividend_payouts
-WHERE ex_date=? AND sid IN ({0})
+WHERE ex_date > ? AND ex_date <= ? AND sid IN ({0})
 """
 
 Dividend = namedtuple("Dividend", ["asset", "amount", "pay_date"])
 
 UNPAID_STOCK_DIVIDEND_QUERY_TEMPLATE = """
 SELECT sid, payment_sid, ratio, pay_date from stock_dividend_payouts
-WHERE ex_date=? AND sid IN ({0})
+WHERE ex_date > ? AND ex_date <= ? AND sid IN ({0})
 """
 
 StockDividend = namedtuple(
@@ -226,14 +227,35 @@ class SQLiteAdjustmentReader:
             for adjustment in adjustments_for_sid
         ]
 
-    def get_dividends_with_ex_date(self, assets, date, asset_finder):
-        seconds = date.value / int(1e9)
+    @staticmethod
+    def _ex_date_window(date, previous_session):
+        """The (exclusive, inclusive] ex_date bounds, in epoch seconds, of the
+        dividends that go ex on ``date``.
+
+        With ``previous_session``, the window is (previous_session, date], so
+        an ex_date that is not a trading session - a weekend or an exchange
+        holiday - is earned on the first session after it. That is the
+        session from which calc_dividend_ratios adjusts prices for it, and
+        the window mirrors DataPortal.get_splits. Matching ex_date to the
+        session exactly never earned those dividends, while the price
+        history was still adjusted for them. Without ``previous_session``
+        only ``date`` itself matches.
+        """
+        upper = naive_session_label(date).value // 10**9
+        if previous_session is None:
+            return upper - 1, upper
+        return naive_session_label(previous_session).value // 10**9, upper
+
+    def get_dividends_with_ex_date(
+        self, assets, date, asset_finder, previous_session=None
+    ):
+        bounds = self._ex_date_window(date, previous_session)
         c = self.conn.cursor()
 
         divs = []
         for chunk in group_into_chunks(assets):
             query = UNPAID_QUERY_TEMPLATE.format(",".join(["?" for _ in chunk]))
-            t = (seconds,) + tuple(map(lambda x: int(x), chunk))
+            t = bounds + tuple(map(lambda x: int(x), chunk))
 
             c.execute(query, t)
 
@@ -249,8 +271,10 @@ class SQLiteAdjustmentReader:
 
         return divs
 
-    def get_stock_dividends_with_ex_date(self, assets, date, asset_finder):
-        seconds = date.value / int(1e9)
+    def get_stock_dividends_with_ex_date(
+        self, assets, date, asset_finder, previous_session=None
+    ):
+        bounds = self._ex_date_window(date, previous_session)
         c = self.conn.cursor()
 
         stock_divs = []
@@ -258,7 +282,7 @@ class SQLiteAdjustmentReader:
             query = UNPAID_STOCK_DIVIDEND_QUERY_TEMPLATE.format(
                 ",".join(["?" for _ in chunk])
             )
-            t = (seconds,) + tuple(map(lambda x: int(x), chunk))
+            t = bounds + tuple(map(lambda x: int(x), chunk))
 
             c.execute(query, t)
 

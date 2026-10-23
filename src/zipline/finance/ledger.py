@@ -23,6 +23,7 @@ import pandas as pd
 from zipline.assets import Future
 from zipline.finance.transaction import Transaction
 import zipline.protocol as zp
+from zipline.utils.calendar_utils import naive_session_label
 from zipline.utils.sentinel import sentinel
 from .position import Position
 from ._finance_ext import (
@@ -32,6 +33,16 @@ from ._finance_ext import (
 )
 
 log = logging.getLogger("Performance")
+
+
+def _pay_date_label(ts):
+    """``ts`` as a naive session label, so pay dates and sessions compare.
+
+    Dividend pay dates come back from the adjustments db UTC-aware, while
+    callers may pass naive session labels. Comparing naive with aware raises
+    TypeError, and that used to drop the payment.
+    """
+    return naive_session_label(pd.Timestamp(ts))
 
 
 class PositionTracker:
@@ -151,7 +162,7 @@ class PositionTracker:
         """
         pay_date = dividend.pay_date
         if not pd.isnull(pay_date):
-            return pay_date
+            return _pay_date_label(pay_date)
 
         if ex_date is None:
             # No fallback available. Warn loudly rather than silently
@@ -163,7 +174,7 @@ class PositionTracker:
             )
             return pay_date
 
-        return ex_date
+        return _pay_date_label(ex_date)
 
     def earn_dividends(self, cash_dividends, stock_dividends, ex_date=None):
         """Given a list of dividends whose ex_dates are all the next trading
@@ -178,8 +189,10 @@ class PositionTracker:
             namedtuples.
 
         ex_date : pd.Timestamp, optional
-            The session on which these dividends go ex. Used as the pay date
-            for any dividend whose own ``pay_date`` is missing.
+            The session on which these dividends are earned: their ex date,
+            or the first session after it if the ex date is not a session.
+            Used as the pay date for any dividend whose own ``pay_date`` is
+            missing.
         """
         for cash_dividend in cash_dividends:
             self._dirty_stats = True  # only mark dirty if we pay a dividend
@@ -211,24 +224,12 @@ class PositionTracker:
         paid out on the first session at or after it instead of being
         dropped. Equality matching silently lost those payments.
         """
+        next_trading_day = _pay_date_label(next_trading_day)
         due = []
         for pay_date in unpaid:
             if pd.isnull(pay_date):
                 continue
-            try:
-                is_due = pay_date <= next_trading_day
-            except TypeError:
-                # Naive/aware mismatch between the bundle's pay dates and the
-                # simulation calendar. Comparing would raise, and skipping
-                # would silently lose the payment, so say so.
-                log.warning(
-                    "Cannot compare dividend pay_date %s with session %s;"
-                    " these payments will not be made.",
-                    pay_date,
-                    next_trading_day,
-                )
-                continue
-            if is_due:
+            if pay_date <= next_trading_day:
                 due.append(pay_date)
 
         # Sort so that payment order does not depend on dict insertion order.
@@ -601,11 +602,16 @@ class Ledger:
         if txn is not None:
             self.process_transaction(txn)
 
-    def process_dividends(self, next_session, asset_finder, adjustment_reader):
+    def process_dividends(
+        self, next_session, asset_finder, adjustment_reader, previous_session=None
+    ):
         """Process dividends for the next session.
 
-        This will earn us any dividends whose ex-date is the next session as
-        well as paying out any dividends whose pay-date is the next session
+        This will earn us any dividends whose ex-date falls in
+        (previous_session, next_session] - so an ex-date on a weekend or a
+        holiday is earned on the session after it - as well as paying out any
+        dividends whose pay-date is the next session. Without
+        ``previous_session`` only ex-dates equal to ``next_session`` match.
         """
         position_tracker = self.position_tracker
 
@@ -615,17 +621,17 @@ class Ledger:
         held_sids = set(position_tracker.positions)
         if held_sids:
             cash_dividends = adjustment_reader.get_dividends_with_ex_date(
-                held_sids, next_session, asset_finder
+                held_sids, next_session, asset_finder, previous_session
             )
             stock_dividends = adjustment_reader.get_stock_dividends_with_ex_date(
-                held_sids, next_session, asset_finder
+                held_sids, next_session, asset_finder, previous_session
             )
 
             # Earning a dividend just marks that we need to get paid out on
             # the dividend's pay-date. This does not affect our cash yet.
             # These were all queried by ex-date, so `next_session` is their ex
-            # date, and stands in as the pay date for any dividend the bundle
-            # left without one.
+            # date (or the first session after it), and stands in as the pay
+            # date for any dividend the bundle left without one.
             position_tracker.earn_dividends(
                 cash_dividends,
                 stock_dividends,
