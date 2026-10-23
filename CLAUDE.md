@@ -17,7 +17,7 @@ The fork diverges from upstream (last upstream commit `943010b9`) in two ways:
 
 ## Key Information
 - **Python Version**: >= 3.10
-- **Main Dependencies**: pandas >= 2.2 (runs on 3.0), SQLAlchemy >= 2.0, numpy >= 2.0
+- **Main Dependencies**: pandas >= 2.2, < 3.1 (runs on 3.0; pyproject.toml says why it is capped), SQLAlchemy >= 2.0, numpy >= 2.0
 - **Documentation**: https://zipline.ml4trading.io
 - **Community**: https://exchange.ml4trading.io
 

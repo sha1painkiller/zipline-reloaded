@@ -38,7 +38,11 @@ dependencies = [
     "numpy>=1.23.5; python_version<'3.12'",
     "numpy>=1.26.0; python_version>='3.12'",
     "numpy>=2.1; python_version>='3.13'",
-    "pandas >=2.2,<4.0",
+    # Capped at the newest tested minor: Ledger.daily_returns_series and
+    # PositionStats' exposure series are copy=False views written through
+    # their numpy buffers, which pandas Copy-on-Write does not promise to
+    # keep working. Re-check those before raising the cap.
+    "pandas >=2.2,<3.1",
     'alembic >=0.7.7',
     'bcolz-zipline >=1.2.6',
     'bottleneck >=1.0.0',
