@@ -492,20 +492,29 @@ def _make_bundle_core():
                     downgrade(wf.path, version)
 
     def most_recent_data(bundle_name, timestamp, environ=None):
-        """Get the path to the most recent data after ``date``for the
-        given bundle.
+        """Get the path to the most recent data on or before ``timestamp``
+        for the given bundle.
 
         Parameters
         ----------
         bundle_name : str
             The name of the bundle to lookup.
         timestamp : datetime
-            The timestamp to begin searching on or before.
+            The timestamp to begin searching on or before. A naive timestamp
+            is read as UTC, the zone ingestion directories are named in.
         environ : dict, optional
             An environment dict to forward to zipline_root.
         """
         if bundle_name not in bundles:
             raise UnknownBundle(bundle_name)
+
+        # Ingestion directory names are naive UTC (see ``ingest``). This
+        # bound used to be ignored, so ``load(name, timestamp=...)`` and
+        # ``run_algorithm(bundle_timestamp=...)`` always read the newest
+        # ingestion and a pinned re-run could not reproduce its results.
+        bound = pd.Timestamp(timestamp)
+        if bound.tzinfo is not None:
+            bound = bound.tz_convert("UTC").tz_localize(None)
 
         try:
             candidates = os.listdir(
@@ -515,7 +524,12 @@ def _make_bundle_core():
                 [
                     bundle_name,
                     max(
-                        filter(complement(pth.hidden), candidates),
+                        (
+                            c
+                            for c in candidates
+                            if not pth.hidden(c)
+                            and from_bundle_ingest_dirname(c) <= bound
+                        ),
                         key=from_bundle_ingest_dirname,
                     ),
                 ],

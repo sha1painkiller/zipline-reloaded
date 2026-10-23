@@ -52,6 +52,16 @@ class BenchmarkSource:
                 benchmark_asset, trading_calendar, sessions, data_portal
             )
         elif benchmark_returns is not None:
+            # Sessions are naive midnights. A tz-aware index, or one stamped
+            # at the close, matches none of them, so the whole series used to
+            # reindex to NaN and become a flat 0% benchmark with only the
+            # warning below. Keep each label's own calendar date, as
+            # get_benchmark_returns_from_file does.
+            index = pd.DatetimeIndex(benchmark_returns.index)
+            if index.tz is not None:
+                index = index.tz_localize(None)
+            benchmark_returns = benchmark_returns.set_axis(index.normalize())
+
             reindexed = benchmark_returns.reindex(sessions)
 
             # Sessions the benchmark file doesn't cover become 0% days. That

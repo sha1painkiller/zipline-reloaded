@@ -372,6 +372,72 @@ class BundleCoreTestCase(WithInstanceTmpDir, WithDefaultDateBounds, ZiplineTestC
         with pytest.raises(ValueError, match=re.escape(expected_msg)):
             self.load("bundle", timestamp=ts, environ=self.environ)
 
+    @skip_on(PermissionError)
+    @pytest.mark.skipif(
+        ON_WINDOWS_CI,
+        reason="Bundle tests fail on Windows CI due to file handling issues",
+    )
+    def test_load_reads_the_ingestion_on_or_before_timestamp(self):
+        """``load(timestamp=...)`` - and with it ``run_algorithm``'s
+        ``bundle_timestamp`` - used to ignore the timestamp and always read
+        the newest ingestion, so a pinned re-run could not reproduce an
+        earlier result."""
+        calendar = get_calendar("XNYS")
+        start, end = pd.Timestamp("2014-01-06"), pd.Timestamp("2014-01-10")
+        sessions = calendar.sessions_in_range(start, end)
+        minutes = calendar.sessions_minutes(start, end)
+        sids_to_write = []
+
+        @self.register(
+            "bundle", calendar_name="NYSE", start_session=start, end_session=end
+        )
+        def bundle_ingest(
+            environ,
+            asset_db_writer,
+            minute_bar_writer,
+            daily_bar_writer,
+            adjustment_writer,
+            calendar,
+            start_session,
+            end_session,
+            cache,
+            show_progress,
+            output_dir,
+        ):
+            equities = make_simple_equity_info(sids_to_write[-1], start, end)
+            asset_db_writer.write(equities=equities)
+            minute_bar_writer.write(make_bar_data(equities, minutes))
+            daily_bar_writer.write(make_bar_data(equities, sessions))
+            adjustment_writer.write()
+
+        first = pd.Timestamp("2026-01-01 12:00", tz="UTC")
+        second = pd.Timestamp("2026-02-01 12:00", tz="UTC")
+        for sids, ts in (((0, 1), first), ((0, 1, 2), second)):
+            sids_to_write.append(sids)
+            self.ingest("bundle", environ=self.environ, timestamp=ts)
+
+        def loaded_sids(timestamp):
+            with self.load(
+                "bundle", environ=self.environ, timestamp=timestamp
+            ) as bundle:
+                return set(bundle.asset_finder.sids)
+
+        assert loaded_sids(None) == {0, 1, 2}
+        assert loaded_sids(second) == {0, 1, 2}
+        assert loaded_sids(pd.Timestamp("2026-01-15", tz="UTC")) == {0, 1}
+        # A naive timestamp is read as UTC, the zone ingestions are named in.
+        assert loaded_sids(pd.Timestamp("2026-01-01 12:00")) == {0, 1}
+        assert loaded_sids(pd.Timestamp("2026-01-01 07:00", tz="US/Eastern")) == {
+            0,
+            1,
+        }
+        with pytest.raises(ValueError, match="no data for bundle 'bundle'"):
+            self.load(
+                "bundle",
+                environ=self.environ,
+                timestamp=first - pd.Timedelta(seconds=1),
+            )
+
     def _list_bundle(self):
         return {
             os.path.join(pth.data_path(["bundle", d], environ=self.environ))

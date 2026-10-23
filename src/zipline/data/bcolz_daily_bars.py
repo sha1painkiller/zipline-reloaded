@@ -597,15 +597,25 @@ class BcolzDailyBarReader(CurrencyAwareSessionBarReader):
             if volumes[ix] != 0:
                 return day
 
-        # Find the last nonzero-volume row in one read rather than walking
-        # back a session at a time (~1,250 steps for an asset delisted five
-        # years before ``day``). Row ``first_row + k`` is session
-        # ``calendar_offset + k``.
+        # Find the last nonzero-volume row by reading backward in chunks that
+        # double in size. A zero-volume filler row a session or two after the
+        # last trade - the common case - reads a handful of rows, and an
+        # asset delisted years before ``day`` takes a few reads rather than
+        # one step per session (~1,250 for five years). Reading its whole
+        # history at once made the common case decompress every row. Row
+        # ``first_row + k`` is session ``calendar_offset + k``.
         first_row = self._first_rows[asset]
-        traded = np.flatnonzero(volumes[first_row : ix + 1])
-        if len(traded) == 0:
-            return pd.NaT
-        return self.sessions[self._calendar_offsets[asset] + traded[-1]]
+        end = ix + 1
+        size = 16
+        while end > first_row:
+            start = max(first_row, end - size)
+            traded = np.flatnonzero(volumes[start:end])
+            if len(traded):
+                row = start + traded[-1]
+                return self.sessions[self._calendar_offsets[asset] + row - first_row]
+            end = start
+            size *= 2
+        return pd.NaT
 
     def sid_day_index(self, sid, day):
         """

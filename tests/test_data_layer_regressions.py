@@ -1,8 +1,8 @@
 """
 Regression tests for data-layer and bookkeeping fixes: daily price
 forward-fill without a first trading day, asset db version checks, the
-last-traded lookup, quandl tar extraction, %-style logging, and the lazily
-built position exposure Series.
+last-traded lookup, quandl tar extraction, %-style logging, the lazily
+built position exposure Series, and benchmark returns indexes.
 """
 
 import io
@@ -28,6 +28,7 @@ from zipline.finance._finance_ext import (
     calculate_position_tracker_stats,
 )
 from zipline.finance.position import Position
+from zipline.sources.benchmark_source import BenchmarkSource
 from zipline.utils.calendar_utils import get_calendar
 
 EXCHANGE = ExchangeInfo("TEST", "TEST", "US")
@@ -182,6 +183,116 @@ class TestGetLastTradedDt:
         saturday = pd.Timestamp("2024-01-13")
 
         assert pd.isnull(BcolzDailyBarReader.get_last_traded_dt(reader, 1, saturday))
+
+
+class _RecordingVolumes:
+    """A volume column that records the length of every slice read from it."""
+
+    def __init__(self, volumes):
+        self.volumes = volumes
+        self.read_lengths = []
+
+    def __getitem__(self, key):
+        out = self.volumes[key]
+        if isinstance(key, slice):
+            self.read_lengths.append(len(out))
+        return out
+
+
+class TestGetLastTradedDtLongHistory:
+    """Over a long zero-volume run the lookup must still find the last trade,
+    and a trade one session back must not read the asset's whole history:
+    bundles that pad missing sessions with zero-volume rows hit that path on
+    every padded row.
+    """
+
+    N = 300
+
+    @pytest.fixture
+    def sessions(self):
+        return get_calendar("XNYS").sessions_in_range("2023-01-03", "2024-12-31")
+
+    def _reader(self, sessions, volumes):
+        column = _RecordingVolumes(volumes)
+        reader = SimpleNamespace(
+            sessions=sessions,
+            _first_rows={1: 0},
+            _last_rows={1: len(volumes) - 1},
+            _calendar_offsets={1: 0},
+            _spot_col=lambda colname: column,
+        )
+        reader.sid_day_index = lambda sid, day: BcolzDailyBarReader.sid_day_index(
+            reader, sid, day
+        )
+        return reader, column
+
+    @pytest.mark.parametrize("last_trade", [0, 1, 15, 16, 17, 100, 298])
+    def test_matches_per_session_walk(self, sessions, last_trade):
+        volumes = np.zeros(self.N, dtype=np.uint32)
+        volumes[last_trade] = 5
+        reader, _ = self._reader(sessions, volumes)
+
+        for day in (sessions[last_trade + 1], sessions[self.N - 1], sessions[-1]):
+            actual = BcolzDailyBarReader.get_last_traded_dt(reader, 1, day)
+            assert actual == sessions[last_trade], day
+
+    def test_no_trade_at_all_is_nat(self, sessions):
+        reader, _ = self._reader(sessions, np.zeros(self.N, dtype=np.uint32))
+
+        assert pd.isnull(
+            BcolzDailyBarReader.get_last_traded_dt(reader, 1, sessions[self.N - 1])
+        )
+
+    def test_recent_trade_reads_a_few_rows(self, sessions):
+        volumes = np.full(self.N, 7, dtype=np.uint32)
+        volumes[-1] = 0
+        reader, column = self._reader(sessions, volumes)
+
+        actual = BcolzDailyBarReader.get_last_traded_dt(
+            reader, 1, sessions[self.N - 1]
+        )
+
+        assert actual == sessions[self.N - 2]
+        assert sum(column.read_lengths) <= 16
+
+
+class TestBenchmarkReturnsIndex:
+    """Benchmark returns are reindexed onto naive session labels. An index
+    that is tz-aware, or stamped at the close, matched none of them, so the
+    whole benchmark silently became 0% and alpha, beta and excess return were
+    meaningless.
+    """
+
+    SESSIONS = get_calendar("XNYS").sessions_in_range("2024-01-02", "2024-01-10")
+
+    def _daily_returns(self, index):
+        returns = pd.Series(np.arange(1, len(index) + 1) / 100.0, index=index)
+        source = BenchmarkSource(
+            benchmark_asset=None,
+            trading_calendar=get_calendar("XNYS"),
+            sessions=self.SESSIONS,
+            data_portal=None,
+            benchmark_returns=returns,
+        )
+        return source.daily_returns(self.SESSIONS[0], self.SESSIONS[-1])
+
+    @pytest.mark.parametrize(
+        "index",
+        [
+            pytest.param(SESSIONS, id="naive"),
+            pytest.param(SESSIONS.tz_localize("UTC"), id="utc"),
+            pytest.param(SESSIONS.tz_localize("US/Eastern"), id="us_eastern"),
+            pytest.param(
+                (SESSIONS + pd.Timedelta(hours=16)).tz_localize("US/Eastern"),
+                id="stamped_at_close",
+            ),
+        ],
+    )
+    def test_returns_line_up_with_sessions(self, index):
+        daily = self._daily_returns(index)
+
+        expected = np.arange(1, len(self.SESSIONS) + 1) / 100.0
+        np.testing.assert_array_almost_equal(daily.values, expected)
 
 
 class TestQuandlTarExtraction:
