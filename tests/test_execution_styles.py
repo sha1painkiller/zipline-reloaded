@@ -109,12 +109,18 @@ class ExecutionStyleTestCase(WithConstantFutureMinuteBarData, ZiplineTestCase):
         for delta in range(1, 10)
     ]
 
-    # Combine everything into one parameter set
-    FINAL_PARAMETER_SET = (
-        [(x, y, z, 1) for (x, y, z) in EXPECTED_PRICE_ROUNDING]
-        + [(x, y, z, 2) for (x, y, z) in EXPECTED_PRECISION_ROUNDING]
-        + [(x, y, z, 3) for (x, y, z) in EXPECTED_CUSTOM_TICK_SIZE_ROUNDING]
-    )
+    # Combine everything into one parameter set. A price of exactly 0 is
+    # refused at construction (see test_zero_prices_are_refused), so those
+    # rows only seed the shifted variants above.
+    FINAL_PARAMETER_SET = [
+        row
+        for row in (
+            [(x, y, z, 1) for (x, y, z) in EXPECTED_PRICE_ROUNDING]
+            + [(x, y, z, 2) for (x, y, z) in EXPECTED_PRECISION_ROUNDING]
+            + [(x, y, z, 3) for (x, y, z) in EXPECTED_CUSTOM_TICK_SIZE_ROUNDING]
+        )
+        if row[0] != 0
+    ]
 
     @classmethod
     def make_futures_info(cls):
@@ -161,6 +167,20 @@ class ExecutionStyleTestCase(WithConstantFutureMinuteBarData, ZiplineTestCase):
         for lmt, stp in [(price, 1), (1, price), (price, price)]:
             with pytest.raises(BadOrderParameters):
                 StopLimitOrder(lmt, stp)
+
+    def test_zero_prices_are_refused(self):
+        # order(..., limit_price=0) is refused in validate_order_params, but
+        # style=LimitOrder(0) never goes through it; a buy limit at 0 would
+        # sit open forever under NeverCancel.
+        for price in (0, 0.0):
+            with pytest.raises(BadOrderParameters):
+                LimitOrder(price)
+            with pytest.raises(BadOrderParameters):
+                StopOrder(price)
+            with pytest.raises(BadOrderParameters):
+                StopLimitOrder(price, 1)
+            with pytest.raises(BadOrderParameters):
+                StopLimitOrder(1, price)
 
     def test_market_order_prices(self):
         """

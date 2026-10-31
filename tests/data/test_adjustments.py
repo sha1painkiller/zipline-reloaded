@@ -200,6 +200,32 @@ class TestSQLiteAdjustmentsWriter(
                 in self._caplog.messages
             )
 
+    def test_aware_dividend_dates_keep_their_wall_clock_date(self):
+        # An ex_date given as US/Eastern midnight names that session. Stored
+        # as its UTC instant (04:00/05:00) it fell outside the
+        # (previous_session, session] earn window and was earned a session
+        # late, after prices had already been adjusted for it.
+        dates = self.trading_calendar.sessions[200:203]
+        close = pd.DataFrame({0: [10.0, 10.0, 10.0]}, index=dates)
+        eastern = [d.tz_localize("America/New_York") for d in dates]
+        dividends = pd.DataFrame(
+            {
+                "sid": [0],
+                "ex_date": [eastern[1]],
+                "declared_date": [eastern[0]],
+                "record_date": [eastern[1]],
+                "pay_date": [eastern[2]],
+                "amount": [0.5],
+            }
+        )
+        self.writer_from_close(close).write(dividends=dividends)
+        payouts = self.component_dataframes()["dividend_payouts"]
+        row = payouts.iloc[0]
+        assert row["ex_date"] == dates[1]
+        assert row["declared_date"] == dates[0]
+        assert row["record_date"] == dates[1]
+        assert row["pay_date"] == dates[2]
+
     def _test_identity(self, name):
         sids = np.arange(5)
 

@@ -227,3 +227,12 @@ def check_stoplimit_prices(price, label):
         raise BadOrderParameters(
             msg="Can't place a {} order with a negative price.".format(label)
         )
+    # A zero limit/stop is never meaningful: a buy limit at 0 never fills
+    # (and stays open forever under NeverCancel) and a sell limit at 0 fills
+    # at any price. Checked here so ``style=LimitOrder(0)`` is refused the
+    # same way as ``order(..., limit_price=0)``.
+    if price == 0:
+        raise BadOrderParameters(
+            msg="Can't place a {} order with a price of 0; use a market "
+            "order instead.".format(label)
+        )

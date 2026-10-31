@@ -166,7 +166,10 @@ DEFAULT_BUNDLE = "quandl"
 @click.option(
     "--bundle-timestamp",
     type=Timestamp(),
-    default=pd.Timestamp.utcnow(),
+    # None, not utcnow(): a default is evaluated once at import, so a
+    # long-lived process (the %%zipline magic) would keep that bound and
+    # silently skip any later ingestion. bundles.load() resolves None to now.
+    default=None,
     show_default=False,
     help="The date to lookup data on or before.\n" "[default: <current-time>]",
 )

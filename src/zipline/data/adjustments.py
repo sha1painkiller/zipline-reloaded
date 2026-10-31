@@ -581,6 +581,15 @@ class SQLiteAdjustmentWriter:
             # object under pandas 3.
             for col in ("ex_date", "record_date", "declared_date", "pay_date"):
                 dividend_payouts[col] = pd.to_datetime(dividend_payouts[col])
+                # Dates name sessions. An aware column keeps its own
+                # wall-clock date (naive_session_label's rule); ``.values``
+                # below would otherwise store the UTC instant, so a
+                # US/Eastern-midnight ex_date lands at 04:00/05:00 UTC and is
+                # earned one session late.
+                if dividend_payouts[col].dt.tz is not None:
+                    dividend_payouts[col] = dividend_payouts[col].dt.tz_localize(
+                        None
+                    )
             dividend_payouts["ex_date"] = (
                 dividend_payouts["ex_date"]
                 .values.astype("datetime64[s]")
